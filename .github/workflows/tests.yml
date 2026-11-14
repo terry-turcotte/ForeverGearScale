@@ -1,0 +1,16 @@
+name: Addon tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  forever-gear-scale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.1
+      - name: Syntax check
+        run: find . -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+      - name: Tests
+        run: lua5.1 tests/run.lua

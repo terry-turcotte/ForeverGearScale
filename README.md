@@ -18,7 +18,7 @@ Gear Scale · Retribution              ▲ Upgrade
 
 ## Install
 
-1. Copy the `ForeverGearScale` folder into the **Interface/AddOns** folder of your **WoW Forever** install. That is the Forever game folder, not the Classic Era or retail one.
+1. Download this repo (**Code → Download ZIP**, or `git clone`) and put it in the **Interface/AddOns** folder of your **WoW Forever** install. That is the Forever game folder, not the Classic Era or retail one. The folder must be named exactly `ForeverGearScale`: a ZIP download unpacks as `ForeverGearScale-main`, so rename it.
 2. Restart the game, or `/reload`. Make sure **Forever Gear Scale** is ticked in the AddOns list on the character screen.
 3. Hover any piece of gear.
 
@@ -55,7 +55,8 @@ Hold **Shift** while hovering to see the 4 stats that move the score most, and h
 | 10 | Tune the presets once Forever's reworked talents settle (sims, logs, guild feedback) | 🔜 |
 | 11 | Settings panel (sliders) instead of slash commands only | 🔜 |
 | 12 | French UI strings (the parser already reads French tooltips) | 🔜 |
-| 13 | Own repository + CurseForge/Wago packaging | 🔜 |
+| 13 | Own repository | ✅ |
+| 14 | CurseForge/Wago packaging (release ZIPs) | 🔜 |
 
 ## 2. Architecture
 
@@ -125,13 +126,6 @@ Same anchors as the web page: **1 Attack Power = 5 pts** (casters: 1 spell power
 lua5.1 tests/run.lua
 ```
 
-`tests/run.lua` stubs the WoW API (items, equipped slots, talents, tooltips), loads every file in TOC order, and checks the parser (EN/FR), presets, scoring, spec detection, commands and the full tooltip flow (upgrade, equipped item, Shift details, rings, two-handers, empty slots). CI runs it on every push that touches `addons/`.
+`tests/run.lua` stubs the WoW API (items, equipped slots, talents, tooltips), loads every file in TOC order, and checks the parser (EN/FR), presets, scoring, spec detection, commands and the full tooltip flow (upgrade, equipped item, Shift details, rings, two-handers, empty slots). CI (GitHub Actions) runs it on every push and pull request.
 
-### Moving it to its own repository
-
-This folder doesn't depend on anything else in this repo. To give it its own history:
-
-```sh
-git subtree split --prefix=addons/ForeverGearScale -b forever-gear-scale
-# then push that branch to a new, empty GitHub repository
-```
+This addon started in the guild website repo ([patriotesazeroth-web](https://github.com/terry-turcotte/patriotesazeroth-web)) and was split out with its history.
