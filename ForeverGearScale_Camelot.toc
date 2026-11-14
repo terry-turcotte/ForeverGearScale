@@ -3,6 +3,7 @@
 ## Notes: Scores gear on 3 axes (DPS / Defense / Sustain) for your class and spec, and shows the difference against what you wear, right in the item tooltip.
 ## Author: Les Patriotes d'Azeroth
 ## Version: 0.1.0
+## X-License: MIT
 ## SavedVariables: ForeverGearScaleDB
 
 Compat.lua
