@@ -128,6 +128,33 @@ lua5.1 tests/run.lua
 
 `tests/run.lua` stubs the WoW API (items, equipped slots, talents, tooltips), loads every file in TOC order, and checks the parser (EN/FR), presets, scoring, spec detection, commands and the full tooltip flow (upgrade, equipped item, Shift details, rings, two-handers, empty slots). CI (GitHub Actions) runs it on every push and pull request.
 
+### Versions and release tags
+
+Releases follow CurseForge's three release types, read from the git tag name (the same rule the BigWigs packager uses):
+
+| Tag | CurseForge type |
+| --- | --- |
+| `v0.1.0-alpha.1` | Alpha (contains `alpha`) |
+| `v0.1.0-beta.1` | Beta (contains `beta`) |
+| `v0.1.0` | Release (anything else) |
+
+The `## Version:` line in both `.toc` files matches the tag without the `v`.
+
+**To cut a release, bump `## Version:` in both `.toc` files and merge to `main`.** No manual tag is needed: `.github/workflows/release.yml` runs on every push to `main`, and when the version has no tag yet it creates `v<version>` on that commit and releases it. Pushes that don't change the version release nothing. Pushing a `v*` tag by hand also works.
+
+The workflow:
+
+1. runs the syntax check and the tests;
+2. checks the tag name and that both `.toc` versions match it (`.github/scripts/package.sh`, which you can also run locally);
+3. builds `ForeverGearScale-<version>.zip` (a `ForeverGearScale/` folder with the `.toc` files, Lua files, `Data/`, README and LICENSE);
+4. creates the tag if it came from a version bump, then a GitHub release with that zip and a changelog built from the commits since the previous tag. Alpha and beta releases are marked as pre-releases;
+5. uploads the zip to CurseForge with the matching release type, but only once these are set under *Settings → Secrets and variables → Actions*:
+   - secret `CF_API_KEY`: a CurseForge API token (legacy.curseforge.com → Account → API tokens);
+   - variable `CF_PROJECT_ID`: the project's numeric id;
+   - variable `CF_GAME_VERSION_IDS`: comma-separated CurseForge game version ids for the Forever client.
+
+   Without `CF_PROJECT_ID`, that step is skipped and only the GitHub release is made.
+
 This addon started in the guild website repo ([patriotesazeroth-web](https://github.com/terry-turcotte/patriotesazeroth-web)) and was split out with its history.
 
 ## License
