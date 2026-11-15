@@ -1,0 +1,89 @@
+name: Release
+
+# Runs when a version tag is pushed. The tag name picks the CurseForge release type:
+#   v1.2.3-alpha.N -> alpha   v1.2.3-beta.N -> beta   v1.2.3 -> release
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the GitHub release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history and tags, for the changelog
+
+      - run: sudo apt-get update && sudo apt-get install -y lua5.1 zip
+
+      - name: Syntax check
+        run: find . -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+
+      - name: Tests
+        run: lua5.1 tests/run.lua
+
+      - name: Package
+        id: pkg
+        run: bash .github/scripts/package.sh "$GITHUB_REF_NAME"
+
+      - name: Changelog
+        run: |
+          prev="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          {
+            echo "## Forever Gear Scale ${{ steps.pkg.outputs.version }} (${{ steps.pkg.outputs.release_type }})"
+            echo
+            if [ -n "$prev" ]; then
+              echo "Changes since $prev:"
+              git log --no-merges --format='- %s' "$prev..$GITHUB_REF_NAME"
+            else
+              echo "First release. Changes:"
+              git log --no-merges --format='- %s' "$GITHUB_REF_NAME"
+            fi
+          } > CHANGELOG.md
+          cat CHANGELOG.md
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=""
+          if [ "${{ steps.pkg.outputs.release_type }}" != "release" ]; then flags="--prerelease"; fi
+          gh release create "$GITHUB_REF_NAME" "${{ steps.pkg.outputs.zip }}" \
+            --title "Forever Gear Scale ${{ steps.pkg.outputs.version }}" \
+            --notes-file CHANGELOG.md \
+            --verify-tag $flags
+
+      # Optional: runs only once the CurseForge settings exist in the repo
+      # (Settings > Secrets and variables > Actions):
+      #   secret   CF_API_KEY           API token from https://legacy.curseforge.com/account/api-tokens
+      #   variable CF_PROJECT_ID        the project's numeric id (shown on its CurseForge page)
+      #   variable CF_GAME_VERSION_IDS  comma-separated CurseForge game version ids, e.g. 12345
+      - name: Upload to CurseForge
+        if: ${{ vars.CF_PROJECT_ID != '' }}
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          CF_PROJECT_ID: ${{ vars.CF_PROJECT_ID }}
+          CF_GAME_VERSION_IDS: ${{ vars.CF_GAME_VERSION_IDS }}
+          RELEASE_TYPE: ${{ steps.pkg.outputs.release_type }}
+          VERSION: ${{ steps.pkg.outputs.version }}
+          ZIP: ${{ steps.pkg.outputs.zip }}
+        run: |
+          if [ -z "$CF_API_KEY" ]; then echo "::error::CF_PROJECT_ID is set but the CF_API_KEY secret is missing"; exit 1; fi
+          if [ -z "$CF_GAME_VERSION_IDS" ]; then echo "::error::CF_GAME_VERSION_IDS is not set"; exit 1; fi
+          metadata="$(jq -n \
+            --rawfile changelog CHANGELOG.md \
+            --arg type "$RELEASE_TYPE" \
+            --arg name "Forever Gear Scale $VERSION" \
+            --arg ids "$CF_GAME_VERSION_IDS" \
+            '{changelog: $changelog, changelogType: "markdown", displayName: $name,
+              releaseType: $type,
+              gameVersions: ($ids | split(",") | map(gsub("\\s"; "") | select(. != "") | tonumber))}')"
+          curl --fail-with-body -sS \
+            -H "X-Api-Token: $CF_API_KEY" \
+            -F "metadata=$metadata" \
+            -F "file=@$ZIP" \
+            "https://wow.curseforge.com/api/projects/$CF_PROJECT_ID/upload-file"

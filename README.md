@@ -140,6 +140,19 @@ Releases follow CurseForge's three release types, read from the git tag name (th
 
 The `## Version:` line in both `.toc` files matches the tag without the `v`. To cut a release: bump the two `.toc` files, commit, then `git tag -a vX.Y.Z[-beta.N] -m "..."` and push the tag.
 
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which:
+
+1. runs the syntax check and the tests;
+2. checks the tag name and that both `.toc` versions match it (`.github/scripts/package.sh`, which you can also run locally);
+3. builds `ForeverGearScale-<version>.zip` (a `ForeverGearScale/` folder with the `.toc` files, Lua files, `Data/`, README and LICENSE);
+4. creates a GitHub release with that zip and a changelog built from the commits since the previous tag. Alpha and beta releases are marked as pre-releases;
+5. uploads the zip to CurseForge with the matching release type, but only once these are set under *Settings → Secrets and variables → Actions*:
+   - secret `CF_API_KEY`: a CurseForge API token (legacy.curseforge.com → Account → API tokens);
+   - variable `CF_PROJECT_ID`: the project's numeric id;
+   - variable `CF_GAME_VERSION_IDS`: comma-separated CurseForge game version ids for the Forever client.
+
+   Without `CF_PROJECT_ID`, that step is skipped and only the GitHub release is made.
+
 This addon started in the guild website repo ([patriotesazeroth-web](https://github.com/terry-turcotte/patriotesazeroth-web)) and was split out with its history.
 
 ## License
