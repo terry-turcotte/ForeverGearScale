@@ -128,6 +128,18 @@ lua5.1 tests/run.lua
 
 `tests/run.lua` stubs the WoW API (items, equipped slots, talents, tooltips), loads every file in TOC order, and checks the parser (EN/FR), presets, scoring, spec detection, commands and the full tooltip flow (upgrade, equipped item, Shift details, rings, two-handers, empty slots). CI (GitHub Actions) runs it on every push and pull request.
 
+### Versions and release tags
+
+Releases follow CurseForge's three release types, read from the git tag name (the same rule the BigWigs packager uses):
+
+| Tag | CurseForge type |
+| --- | --- |
+| `v0.1.0-alpha.1` | Alpha (contains `alpha`) |
+| `v0.1.0-beta.1` | Beta (contains `beta`) |
+| `v0.1.0` | Release (anything else) |
+
+The `## Version:` line in both `.toc` files matches the tag without the `v`. To cut a release: bump the two `.toc` files, commit, then `git tag -a vX.Y.Z[-beta.N] -m "..."` and push the tag.
+
 This addon started in the guild website repo ([patriotesazeroth-web](https://github.com/terry-turcotte/patriotesazeroth-web)) and was split out with its history.
 
 ## License
