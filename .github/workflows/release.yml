@@ -1,14 +1,25 @@
 name: Release
 
-# Runs when a version tag is pushed. The tag name picks the CurseForge release type:
+# Two ways in:
+#  - a push to main whose `## Version:` (in the .toc) has no tag yet: the workflow
+#    creates the tag v<version> itself, then releases it. Bumping the version and
+#    merging is all it takes.
+#  - a tag pushed by hand (v*): released as is.
+# The tag name picks the CurseForge release type:
 #   v1.2.3-alpha.N -> alpha   v1.2.3-beta.N -> beta   v1.2.3 -> release
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 permissions:
-  contents: write # create the GitHub release
+  contents: write # push the tag and create the GitHub release
 
 jobs:
   release:
@@ -18,41 +29,76 @@ jobs:
         with:
           fetch-depth: 0 # full history and tags, for the changelog
 
+      - name: Pick the tag
+        id: tag
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "TAG=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
+            echo "create=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="$(sed -n 's/^## Version:[[:space:]]*//p' ForeverGearScale.toc | tr -d '\r')"
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "$tag already exists: nothing to release (bump ## Version: in the .toc files to release)."
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          else
+            echo "New version $version: will tag $GITHUB_SHA as $tag."
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "TAG=$tag" >> "$GITHUB_ENV"
+            echo "create=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - run: sudo apt-get update && sudo apt-get install -y lua5.1 zip
+        if: steps.tag.outputs.tag != ''
 
       - name: Syntax check
+        if: steps.tag.outputs.tag != ''
         run: find . -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
 
       - name: Tests
+        if: steps.tag.outputs.tag != ''
         run: lua5.1 tests/run.lua
 
       - name: Package
+        if: steps.tag.outputs.tag != ''
         id: pkg
-        run: bash .github/scripts/package.sh "$GITHUB_REF_NAME"
+        run: bash .github/scripts/package.sh "$TAG"
+
+      - name: Create the tag
+        if: steps.tag.outputs.create == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Forever Gear Scale ${{ steps.pkg.outputs.version }}"
+          git push origin "$TAG"
 
       - name: Changelog
+        if: steps.tag.outputs.tag != ''
         run: |
-          prev="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          prev="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
           {
             echo "## Forever Gear Scale ${{ steps.pkg.outputs.version }} (${{ steps.pkg.outputs.release_type }})"
             echo
             if [ -n "$prev" ]; then
               echo "Changes since $prev:"
-              git log --no-merges --format='- %s' "$prev..$GITHUB_REF_NAME"
+              git log --no-merges --format='- %s' "$prev..$TAG"
             else
               echo "First release. Changes:"
-              git log --no-merges --format='- %s' "$GITHUB_REF_NAME"
+              git log --no-merges --format='- %s' "$TAG"
             fi
           } > CHANGELOG.md
           cat CHANGELOG.md
 
       - name: GitHub release
+        if: steps.tag.outputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           flags=""
           if [ "${{ steps.pkg.outputs.release_type }}" != "release" ]; then flags="--prerelease"; fi
-          gh release create "$GITHUB_REF_NAME" "${{ steps.pkg.outputs.zip }}" \
+          gh release create "$TAG" "${{ steps.pkg.outputs.zip }}" \
             --title "Forever Gear Scale ${{ steps.pkg.outputs.version }}" \
             --notes-file CHANGELOG.md \
             --verify-tag $flags
@@ -63,7 +109,7 @@ jobs:
       #   variable CF_PROJECT_ID        the project's numeric id (shown on its CurseForge page)
       #   variable CF_GAME_VERSION_IDS  comma-separated CurseForge game version ids, e.g. 12345
       - name: Upload to CurseForge
-        if: ${{ vars.CF_PROJECT_ID != '' }}
+        if: ${{ steps.tag.outputs.tag != '' && vars.CF_PROJECT_ID != '' }}
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           CF_PROJECT_ID: ${{ vars.CF_PROJECT_ID }}

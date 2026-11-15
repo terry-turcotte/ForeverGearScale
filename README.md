@@ -138,14 +138,16 @@ Releases follow CurseForge's three release types, read from the git tag name (th
 | `v0.1.0-beta.1` | Beta (contains `beta`) |
 | `v0.1.0` | Release (anything else) |
 
-The `## Version:` line in both `.toc` files matches the tag without the `v`. To cut a release: bump the two `.toc` files, commit, then `git tag -a vX.Y.Z[-beta.N] -m "..."` and push the tag.
+The `## Version:` line in both `.toc` files matches the tag without the `v`.
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which:
+**To cut a release, bump `## Version:` in both `.toc` files and merge to `main`.** No manual tag is needed: `.github/workflows/release.yml` runs on every push to `main`, and when the version has no tag yet it creates `v<version>` on that commit and releases it. Pushes that don't change the version release nothing. Pushing a `v*` tag by hand also works.
+
+The workflow:
 
 1. runs the syntax check and the tests;
 2. checks the tag name and that both `.toc` versions match it (`.github/scripts/package.sh`, which you can also run locally);
 3. builds `ForeverGearScale-<version>.zip` (a `ForeverGearScale/` folder with the `.toc` files, Lua files, `Data/`, README and LICENSE);
-4. creates a GitHub release with that zip and a changelog built from the commits since the previous tag. Alpha and beta releases are marked as pre-releases;
+4. creates the tag if it came from a version bump, then a GitHub release with that zip and a changelog built from the commits since the previous tag. Alpha and beta releases are marked as pre-releases;
 5. uploads the zip to CurseForge with the matching release type, but only once these are set under *Settings → Secrets and variables → Actions*:
    - secret `CF_API_KEY`: a CurseForge API token (legacy.curseforge.com → Account → API tokens);
    - variable `CF_PROJECT_ID`: the project's numeric id;
