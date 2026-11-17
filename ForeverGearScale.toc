@@ -4,6 +4,7 @@
 ## Author: Les Patriotes d'Azeroth
 ## Version: 0.1.0-beta.1
 ## X-License: MIT
+## IconTexture: Interface\Icons\INV_Misc_Gear_01
 ## SavedVariables: ForeverGearScaleDB
 
 Compat.lua

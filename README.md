@@ -1,3 +1,5 @@
+<p align="center"><img src="media/logo-256.png" alt="Forever Gear Scale logo" width="160"></p>
+
 # Forever Gear Scale
 
 A **WoW Forever** addon that answers "is this piece better for me?" right in the item tooltip.
@@ -156,6 +158,12 @@ The workflow:
    Without `CF_PROJECT_ID`, that step is skipped and only the GitHub release is made.
 
 This addon started in the guild website repo ([patriotesazeroth-web](https://github.com/terry-turcotte/patriotesazeroth-web)) and was split out with its history.
+
+## Logo
+
+`media/logo.svg` is the source of the logo, with PNG exports at 512, 256 and 64 px; use `logo-512.png` as the CurseForge project logo. It is original artwork: a balance scale in a cog, with three bars for the DPS, Defense and Sustain axes. The lettering is [Cinzel](https://github.com/NDISCOVER/Cinzel) (SIL Open Font License), converted to outlines. `media/make_logo.py` regenerates the SVG. The `media/` folder is not included in the release zip.
+
+In the game's AddOns list, both `.toc` files use a game icon (`## IconTexture: Interface\Icons\INV_Misc_Gear_01`), so no Blizzard file is copied into the addon. Clients without `IconTexture` support ignore the line.
 
 ## License
 
