@@ -58,7 +58,7 @@ Hold **Shift** while hovering to see the 4 stats that move the score most, and h
 | 11 | Settings panel (sliders) instead of slash commands only | 🔜 |
 | 12 | French UI strings (the parser already reads French tooltips) | 🔜 |
 | 13 | Own repository | ✅ |
-| 14 | CurseForge/Wago packaging (release ZIPs) | 🔜 |
+| 14 | CurseForge packaging and upload (release ZIPs) | ✅ |
 
 ## 2. Architecture
 
