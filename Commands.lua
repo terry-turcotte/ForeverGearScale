@@ -66,6 +66,8 @@ function handlers.status()
         p.overridden and " · custom weights" or ""))
     print(string.format("  priority: %s %d%% · %s %d%% · %s %d%%",
         p.axes[1], p.prio[1], p.axes[2], p.prio[2], p.axes[3], p.prio[3]))
+    local t = p.talentPoints or {}
+    print(string.format("  talent points read: %s / %s / %s", t[1] or "?", t[2] or "?", t[3] or "?"))
 end
 
 function handlers.weights()

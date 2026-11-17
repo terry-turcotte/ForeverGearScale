@@ -199,6 +199,29 @@ test("profile: spec from talent points, override, reset", function()
     PLAYER.tabs = { 5, 11, 31 }; NS.Profile.Invalidate()
 end)
 
+test("profile: unreliable tab info falls back to counting talent ranks", function()
+    -- id-first tab info whose pointsSpent slot isn't pointsSpent (e.g. a file id):
+    -- Holy used to win with a huge bogus count.
+    local oldTab = GetTalentTabInfo
+    GetTalentTabInfo = function(i) return 380 + i, TAB_NAMES[i], "desc", 135920, ({ 999999, 0.5, -3 })[i] end
+    NS.Profile.Invalidate()
+    eq(NS.Profile.Get().source, "default", "garbage counts are ignored")
+    -- Ranks counted talent by talent: 0 / 0 / 27, like the screenshot.
+    local RANKS = { {}, {}, { 5, 5, 3, 3, 2, 5, 1, 3 } }
+    function GetNumTalents(tab) return math.max(#RANKS[tab], 4) end
+    function GetTalentInfo(tab, i) return "T", "icon", 1, 1, RANKS[tab][i] or 0, 5 end
+    NS.Profile.Invalidate()
+    local p = NS.Profile.Get()
+    eq(p.specIndex, 3); eq(p.specName, "Retribution"); eq(p.source, "talents"); eq(p.talentPoints[3], 27)
+    GetTalentTabInfo, GetNumTalents, GetTalentInfo = oldTab, nil, nil
+    NS.Profile.Invalidate()
+end)
+
+test("tooltip text is plain ASCII (the game font shows boxes otherwise)", function()
+    local src = io.open(ROOT .. "Tooltip.lua"):read("*a"):gsub("\194\183", "")  -- middle dot renders fine
+    assert(not src:find("[\128-\255]"), "non-ASCII character in Tooltip.lua")
+end)
+
 test("commands: weight / prio / export / import round trip", function()
     NS.Commands.Run("weight hit 0 0 0")
     NS.Commands.Run("prio 100 50 10")
