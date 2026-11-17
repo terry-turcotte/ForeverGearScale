@@ -17,11 +17,12 @@ local COLOR = {
     even = { 0.61, 0.56, 0.50 },
 }
 local AXIS_COLOR = { "|cfff0a04b", "|cff6aa8ff", "|cffb48cff" }
+-- The game font has no arrows or symbols (they show as boxes): ASCII only.
 local VERDICT = {
-    upgrade   = "|cff78d48a▲ Upgrade|r",
-    downgrade = "|cffff6f6f▼ Downgrade|r",
-    tradeoff  = GOLD .. "⚖ Trade-off|r",
-    sidegrade = GREY .. "≈ Sidegrade|r",
+    upgrade   = "|cff78d48aUpgrade|r",
+    downgrade = "|cffff6f6fDowngrade|r",
+    tradeoff  = GOLD .. "Trade-off|r",
+    sidegrade = GREY .. "Sidegrade|r",
 }
 
 -- equipLoc -> inventory slots it can go in
@@ -102,7 +103,7 @@ local function render(tt, profile, res, label, missCount, isEquipped)
         if (profile.prio[i] or 0) > 0 then
             local c = COLOR[res.status[i]]
             tt:AddDoubleLine(
-                "  " .. AXIS_COLOR[i] .. profile.axes[i] .. "|r " .. GREY .. fmt(res.A[i]) .. " → " .. fmt(res.B[i]) .. "|r",
+                "  " .. AXIS_COLOR[i] .. profile.axes[i] .. "|r " .. GREY .. fmt(res.A[i]) .. " > " .. fmt(res.B[i]) .. "|r",
                 fmt(res.D[i], true), 1, 1, 1, c[1], c[2], c[3])
         end
     end

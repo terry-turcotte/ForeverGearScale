@@ -8,10 +8,10 @@ It is the in-game version of the *Gear Scale* web page (Ret Paladin), with the s
 ```
 Lionheart Helm
 ...
-Gear Scale · Retribution              ▲ Upgrade
-  DPS      1 850 → 2 000                   +150
-  Defense    560 → 650                      +90
-  Sustain      0 → 0                          0
+Gear Scale · Retribution                Upgrade
+  DPS      1 850 > 2 000                   +150
+  Defense    560 > 650                      +90
+  Sustain      0 > 0                          0
   Weighted total                           +173
   Shift: biggest stat swings
 ```
