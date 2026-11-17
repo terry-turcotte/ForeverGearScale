@@ -130,6 +130,6 @@ jobs:
               gameVersions: ($ids | split(",") | map(gsub("\\s"; "") | select(. != "") | tonumber))}')"
           curl --fail-with-body -sS \
             -H "X-Api-Token: $CF_API_KEY" \
-            -F "metadata=$metadata" \
+            --form-string "metadata=$metadata" \
             -F "file=@$ZIP" \
             "https://wow.curseforge.com/api/projects/$CF_PROJECT_ID/upload-file"
