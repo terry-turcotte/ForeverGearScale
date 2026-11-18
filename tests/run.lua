@@ -217,6 +217,32 @@ test("profile: unreliable tab info falls back to counting talent ranks", functio
     NS.Profile.Invalidate()
 end)
 
+test("profile: C_SpecializationInfo-only client (no talent globals)", function()
+    local oldTab, oldTabs = GetTalentTabInfo, GetNumTalentTabs
+    GetTalentTabInfo, GetNumTalentTabs = nil, nil
+    local RANKS = { { 0, 0 }, { 0, 0, 0 }, { 5, 5, 3, 3, 2, 5, 1, 3 } }
+    C_SpecializationInfo = {
+        GetSpecialization = function() return 1 end,   -- what Forever answers whatever the talents
+        GetNumSpecializations = function() return 3 end,
+        GetSpecializationInfo = function(i) return 380 + i, TAB_NAMES[i], "d", 135920, "DAMAGER", 1, 0 end,
+        GetTalentInfo = function(q)
+            local r = RANKS[q.specializationIndex][q.talentIndex]
+            if r then return { name = "T", rank = r, maxRank = 5 } end
+        end,
+    }
+    NS.Profile.Invalidate()
+    local p = NS.Profile.Get()
+    eq(p.specIndex, 3); eq(p.specName, "Retribution"); eq(p.source, "talents"); eq(p.talentPoints[3], 27)
+    NS.Commands.Run("talents")   -- the dump must not error
+    -- No talent info at all: GetSpecialization is only a labelled guess.
+    C_SpecializationInfo.GetSpecializationInfo, C_SpecializationInfo.GetTalentInfo = nil, nil
+    NS.Profile.Invalidate()
+    eq(NS.Profile.Get().source, "client")
+    C_SpecializationInfo = nil
+    GetTalentTabInfo, GetNumTalentTabs = oldTab, oldTabs
+    NS.Profile.Invalidate()
+end)
+
 test("tooltip text is plain ASCII (the game font shows boxes otherwise)", function()
     local src = io.open(ROOT .. "Tooltip.lua"):read("*a"):gsub("\194\183", "")  -- middle dot renders fine
     assert(not src:find("[\128-\255]"), "non-ASCII character in Tooltip.lua")

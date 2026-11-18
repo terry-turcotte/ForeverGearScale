@@ -29,6 +29,7 @@ Gear Scale · Retribution                Upgrade
 | Command | What it does |
 |---|---|
 | `/fgs status` | Class, spec (and whether it came from talents or was set by hand), axis priority |
+| `/fgs talents` | Dumps what the talent API returns, plus the points read per tree: paste it in a bug report if the spec is wrong |
 | `/fgs weights` | Lists the weights in use (points per 1 point of stat, per axis) |
 | `/fgs spec auto\|1\|2\|3` | Forces a spec (talent tab order), or back to automatic |
 | `/fgs prio 100 25 40` | Axis priority in %. Raise Defense for leveling or solo play, Sustain for long fights |
