@@ -50,6 +50,7 @@ local function help()
     print("  /fgs weight <stat> <dps> <def> <sus> — change one stat (e.g. hit 0 0 0 once hit-capped)")
     print("  /fgs reset — back to the preset for this spec")
     print("  /fgs export — print the weights as a string; /fgs import <string> to load one")
+    print("  /fgs talents — dump what the talent API returns (for bug reports)")
     print("  /fgs on||off — show or hide the tooltip lines")
 end
 
@@ -139,6 +140,48 @@ end
 
 function handlers.on() NS.db.enabled = true; say("on.") end
 function handlers.off() NS.db.enabled = false; say("off.") end
+-- Raw talent API dump, to diagnose spec detection on a client we can't test.
+local function show(v)
+    if type(v) ~= "table" then return tostring(v) end
+    local parts = {}
+    for k, x in pairs(v) do
+        if type(x) ~= "table" and type(x) ~= "function" then parts[#parts + 1] = tostring(k) .. "=" .. tostring(x) end
+    end
+    table.sort(parts)
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
+local function dump(label, f, ...)
+    if not f then return print("  " .. label .. ": (missing)") end
+    local r = { pcall(f, ...) }
+    local out = {}
+    for i = 2, math.max(#r, 2) do out[#out + 1] = show(r[i]) end
+    print("  " .. label .. ": " .. (r[1] and "" or "ERROR ") .. table.concat(out, ", "))
+end
+
+function handlers.talents()
+    local CSI = C_SpecializationInfo or {}
+    say("talent API on this client:")
+    local fns = {}
+    for _, name in ipairs({ "GetTalentTabInfo", "GetNumTalentTabs", "GetNumTalents", "GetTalentInfo",
+        "GetSpecialization", "GetActiveTalentGroup", "GetPrimaryTalentTree" }) do
+        fns[#fns + 1] = name .. (_G[name] and "+" or "-")
+    end
+    print("  globals: " .. table.concat(fns, " "))
+    local csi = {}
+    for k, v in pairs(CSI) do if type(v) == "function" then csi[#csi + 1] = k end end
+    table.sort(csi)
+    print("  C_SpecializationInfo: " .. (#csi > 0 and table.concat(csi, " ") or "(none)"))
+    for i = 1, 3 do dump("tab " .. i, NS.TalentAPI.tabInfo(), i) end
+    if GetTalentInfo then
+        dump("talent 3,1", GetTalentInfo, 3, 1)
+    elseif CSI.GetTalentInfo then
+        dump("talent 3,1", CSI.GetTalentInfo, { specializationIndex = 3, talentIndex = 1 })
+    end
+    dump("numTalents 3", GetNumTalents or CSI.GetNumTalents, 3)
+    dump("spec", CSI.GetSpecialization or GetSpecialization)
+    NS.Profile.Invalidate(); handlers.status()
+end
+
 function handlers.debug() NS.db.debug = not NS.db.debug; say("debug " .. (NS.db.debug and "on" or "off")) end
 function handlers.hint() NS.db.showHint = not NS.db.showHint; say("shift hint " .. (NS.db.showHint and "on" or "off")) end
 
