@@ -49,7 +49,8 @@ local function help()
     print("  /fgs weight <stat> <dps> <def> <sus> — pin one stat's weight (no longer live)")
     print("  /fgs unpin <stat> — let that stat follow the model again")
     print("  /fgs set target||judge||execute <value> — boss level, sec between Judgements, execute share (0-1)")
-    print("  /fgs set vengeance||champion||holyshock <rank||auto> — talent rank if the client can't read it")
+    print("  /fgs set vengeance||champion||arbiter <rank||auto> — talent rank if the client can't read it")
+    print("  /fgs set holystrike 0||1 — take Holy Strike out of (or back into) the rotation")
     print("  /fgs reset — unpin everything, default priority and fight settings")
     print("  /fgs export — print the weights as a string; /fgs import <string> to pin them")
     print("  /fgs talents — dump what the talent API returns (for bug reports)")
@@ -77,13 +78,13 @@ function handlers.status()
     print(string.format("  AP %d · crit %.2f%% · hit %.1f%% · weapon skill %d · weapon %.1f DPS, %.2f speed",
         st.ap, st.crit, st.hit, st.wskill, st.wdps, st.speed))
     print(string.format("  Holy spell damage %d · spell crit %.2f%% · spell hit %.1f%%", st.sp, st.spcrit, st.spellhit))
-    print(string.format("  talents: Vengeance %d · Champion of the Light %d · Holy Shock %s",
-        t.vengeance or 0, t.champion or 0, (t.holyShock or 0) > 0 and "yes" or "no"))
+    print(string.format("  talents: Vengeance %d · Champion of the Light %d · Sacred Arbiter %d · Holy Strike %s",
+        t.vengeance or 0, t.champion or 0, t.sacredArbiter or 0, (t.holyStrike or 1) > 0 and "on" or "off"))
     local x = p.parts
     print(string.format("  melee miss %.1f%% · spell miss %.0f%% · Vengeance %.1f stacks avg (+%.1f%% damage)",
         x.miss * 100, x.spellMiss * 100, x.stacks, x.vengeance * 100))
-    print(string.format("  DPS: white %.0f · Seal of Command %.0f · Judgement %.0f · Holy Shock %.0f · Hammer %.0f",
-        x.white, x.soc, x.joc, x.holyShock, x.how))
+    print(string.format("  DPS: white %.0f · Seal of Command %.0f · Holy Strike %.0f · Judgement %.0f · Hammer %.0f",
+        x.white, x.soc, x.holyStrike, x.joc, x.how))
     print(string.format("  priority: %s %d%% · %s %d%% · %s %d%%",
         p.axes[1], p.prio[1], p.axes[2], p.prio[2], p.axes[3], p.prio[3]))
     if #p.estimated > 0 then
@@ -129,7 +130,8 @@ function handlers.unpin(arg)
 end
 
 local FIGHT = { target = { 1, 83 }, judge = { 1, 60 }, execute = { 0, 1 } }
-local TALENT = { vengeance = "vengeance", champion = "champion", holyshock = "holyShock" }
+local TALENT = { vengeance = "vengeance", champion = "champion", arbiter = "sacredArbiter",
+    holystrike = "holyStrike" }
 
 function handlers.set(arg)
     local key, val = (arg or ""):lower():match("^(%S+)%s+(%S+)$")
@@ -143,7 +145,7 @@ function handlers.set(arg)
         elseif n and n >= 0 and n <= 5 then NS.db.talents[TALENT[key]] = n
         else return say(key .. " must be a rank from 0 to 5, or auto") end
     else
-        return say("usage: /fgs set target||judge||execute||vengeance||champion||holyshock <value||auto>")
+        return say("usage: /fgs set target||judge||execute||vengeance||champion||arbiter||holystrike <value||auto>")
     end
     changed(); handlers.status()
 end
@@ -197,8 +199,8 @@ function handlers.talents()
         print("  talent 3,1: " .. (r[1] and "" or "ERROR ") .. table.concat(out, ", "))
     end
     local t, any = NS.Character.ReadTalents()
-    print(string.format("  read: Vengeance %d · Champion of the Light %d · Holy Shock %d%s",
-        t.vengeance, t.champion, t.holyShock, any and "" or " (talent API gave nothing)"))
+    print(string.format("  read: Vengeance %d · Champion of the Light %d · Sacred Arbiter %d%s",
+        t.vengeance, t.champion, t.sacredArbiter, any and "" or " (talent API gave nothing)"))
 end
 
 function handlers.debug() NS.db.debug = not NS.db.debug; say("debug " .. (NS.db.debug and "on" or "off")) end

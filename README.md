@@ -38,7 +38,8 @@ Gear Scale · Retribution                Upgrade
 | `/fgs set target 63` | Target level (default: your level + 3, a raid boss) |
 | `/fgs set judge 9` | Seconds between Judgements of Command (default 9) |
 | `/fgs set execute 0.2` | Share of the fight spent under 20% health, where Hammer of Wrath is used (default 0.2) |
-| `/fgs set vengeance\|champion\|holyshock <rank\|auto>` | Talent rank, if the client can't read it (or to test a build) |
+| `/fgs set vengeance\|champion\|arbiter <rank\|auto>` | Talent rank (Vengeance, Champion of the Light, Sacred Arbiter), if the client can't read it (or to test a build) |
+| `/fgs set holystrike 0\|1` | Takes Holy Strike out of the rotation, or puts it back (default: in) |
 | `/fgs talents` | Dumps what the talent API returns and the ranks read: paste it in a bug report |
 | `/fgs reset` | Unpins everything; priority, fight and talent settings back to default |
 | `/fgs export` / `/fgs import <string>` | Copy weights as text: `str=10/0.3/0;agi=3.5/4/0;…\|prio=100/25/40`. Imported stats are pinned |
@@ -61,8 +62,8 @@ Hold **Shift** while hovering to see the 4 stats that move the score most, and h
 | 7 | Slash commands: tune weights and priority, import/export | ✅ |
 | 8 | Offline tests with a stubbed game API + CI | ✅ |
 | 9 | **In-game check on Forever**: verify API names, tooltip text and talent info on the live client | ⏳ needs a game client |
-| 10 | **Live DPS weights** from a Ret model (Seal of Command, Judgement, Holy Shock, Hammer of Wrath, Vengeance, Champion of the Light) | ✅ |
-| 10b | Check the model's spell numbers (Judgement of Command, Holy Shock) against Forever logs and tune `Model.CONST` | 🔜 |
+| 10 | **Live DPS weights** from a Ret model (Seal of Command, Holy Strike, Judgement, Hammer of Wrath, Vengeance, Champion of the Light) | ✅ |
+| 10b | Check the model's spell numbers (Judgement of Command, Holy Strike) against Forever logs and tune `Model.CONST` | 🔜 |
 | 11 | Settings panel (sliders) instead of slash commands only | 🔜 |
 | 12 | French UI strings (the parser already reads French tooltips) | 🔜 |
 | 13 | Own repository | ✅ |
@@ -103,7 +104,7 @@ sequenceDiagram
 | `Data/Presets.lua` | **Ret weight table** (`NS.RET`): Defense and Sustain weights, and the fallback DPS column | no |
 | `Parser.lua` | Tooltip text to stats, English and French. Skips set bonuses, flavor text, *Use:* and *Chance on hit:* (counted as "not scored") | no |
 | `ItemStats.lua` | Link to stats, with a cache. Removes enchants and gems so the equipped piece isn't favoured by its enchant | through Compat |
-| `Model.lua` | **Ret damage model**: attack tables, Seal of Command, Judgement, Holy Shock, Hammer of Wrath, Vengeance stacks. Gives live weights and the exact DPS change of a swap | no |
+| `Model.lua` | **Ret damage model**: attack tables, Seal of Command, Holy Strike, Judgement, Hammer of Wrath, Vengeance stacks. Gives live weights and the exact DPS change of a swap | no |
 | `Character.lua` | Reads the character sheet and talents (by name, EN + FR) into a model state. Secret or missing values fall back to the last good reading, then defaults | yes |
 | `Scoring.lua` | Points per axis, deltas, priority-weighted total, verdict (*Upgrade / Downgrade / Trade-off / Sidegrade*), biggest swings | no |
 | `Profile.lua` | Paladin check, then model weights + the Ret table + your pinned stats | yes |
@@ -132,7 +133,8 @@ Each DPS weight is 5 × (DPS gained by 1 point of the stat) ÷ (DPS gained by 1 
 - **Melee attack table** against the target level (default your level + 3): miss (9% cap vs a boss), dodge, glancing blows, crit suppression, weapon skill.
 - **White swings** with your weapon DPS and speed, plus Attack Power.
 - **Seal of Command**: 7 procs per minute, 70% weapon damage + 20% of spell damage. Slower weapons hit harder per proc, so weapon speed counts on weapon swaps.
-- **Judgement of Command** every 9 sec (spell hit, melee crit), **Holy Shock** every 30 sec if you have it (spell hit and crit), **Hammer of Wrath** in the execute phase.
+- **Holy Strike** on cooldown (10 sec): a melee strike (melee hit and crit) for 50% weapon damage + 42.9% of spell damage as Holy, +20% with **Sacred Arbiter**.
+- **Judgement of Command** every 9 sec (spell hit, melee crit), **Hammer of Wrath** in the execute phase.
 - **Vengeance**: +1% damage per rank per stack, 5 stacks, 30 sec. Every non-periodic hit above can crit and refresh it. The average stack count is solved exactly from your crit chance and hit rate, so crit is worth a lot at low crit and little once the buff never drops.
 - **Champion of the Light**: 12% of Intellect per rank as spell damage, so Intellect picks up spell damage's value.
 - Strength = 2 AP, 20 Agility = 1% crit, 54 Intellect = 1% spell crit.

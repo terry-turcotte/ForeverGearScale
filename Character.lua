@@ -27,7 +27,7 @@ local function num(v) v = tonumber(v); if v and v == v then return v end end
 local TALENTS = {
     vengeance = { "vengeance" },
     champion = { "champion of the light", "champion de la lumière" },
-    holyShock = { "holy shock", "horion sacré" },
+    sacredArbiter = { "sacred arbiter", "arbitre sacré" },
 }
 local BY_NAME = {}
 for key, names in pairs(TALENTS) do for _, n in ipairs(names) do BY_NAME[n] = key end end
@@ -56,10 +56,10 @@ local function numTabs()
     return (n and n > 0) and math.min(n, 3) or 3
 end
 
--- Returns { vengeance = r, champion = r, holyShock = r } and whether the
+-- Returns { vengeance = r, champion = r, sacredArbiter = r } and whether the
 -- talent API answered at all.
 function Character.ReadTalents()
-    local out = { vengeance = 0, champion = 0, holyShock = 0 }
+    local out = { vengeance = 0, champion = 0, sacredArbiter = 0 }
     local any = false
     local numFn = GetNumTalents or CSI().GetNumTalents
     for tab = 1, numTabs() do
@@ -123,6 +123,7 @@ function Character.Read(fight, overrides)
 
     local talents, readable = Character.ReadTalents()
     if not readable then est[#est + 1] = "talents" end
+    talents.holyStrike = 1   -- baseline ability, in the rotation unless you say otherwise
     for k, v in pairs(overrides or {}) do talents[k] = v end
     st.talents = talents
 

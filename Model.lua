@@ -8,9 +8,9 @@
 --
 -- Rotation modelled:
 --   white swings (2H) + Seal of Command procs (7 PPM, 70% weapon damage)
---   + Judgement of Command every `judge` sec + Holy Shock every 30 sec (if you
---   have it) + Hammer of Wrath during the last `execute` part of the fight,
---   all multiplied by the average Vengeance bonus.
+--   + Holy Strike on cooldown (10 sec) + Judgement of Command every `judge`
+--   sec + Hammer of Wrath during the last `execute` part of the fight, all
+--   multiplied by the average Vengeance bonus.
 --
 -- Numbers are vanilla level-60 values. Forever reworked talents and some
 -- spells, so the constants below are the place to tune them.
@@ -29,7 +29,10 @@ Model.CONST = {
     vengeanceDuration = 30,
     socPPM = 7, socWeapon = 0.7, socCoef = 0.2,
     jocBase = 142, jocCoef = 0.429,
-    holyShockBase = 380, holyShockCoef = 0.429, holyShockCD = 30,
+    -- Holy Strike (baseline, rank 8): instant melee strike, Holy damage =
+    -- 50% weapon damage + 0.429 x spell damage. Sacred Arbiter: +20%.
+    holyStrikeWeapon = 0.5, holyStrikeBase = 0, holyStrikeCoef = 0.429, holyStrikeCD = 10,
+    sacredArbiterBonus = 0.2,
     howBase = 370, howCoef = 0.429, howCD = 6,
 }
 local K = Model.CONST
@@ -42,7 +45,7 @@ function Model.DefaultState()
         level = 60, target = 63,
         ap = 1100, crit = 18, hit = 3, wskill = 300, wdps = 60, speed = 3.6,
         sp = 60, spcrit = 8, spellhit = 0,
-        talents = { vengeance = 0, champion = 0, holyShock = 0 },
+        talents = { vengeance = 0, champion = 0, sacredArbiter = 0, holyStrike = 1 },
         fight = { judge = 9, execute = 0.2 },
     }
 end
@@ -115,9 +118,13 @@ function Model.Dps(st)
     local spcrit = math.max(0, st.spcrit or 0) / 100
     local judge = math.max(1, f.judge or 9)
     local joc = (K.jocBase + K.jocCoef * sp) * sHit * (1 + crit) / judge
+    -- Holy Strike: a melee special (miss/dodge, melee crit x2), on cooldown.
+    local useHS = (t.holyStrike or 1) > 0
     local hs = 0
-    if (t.holyShock or 0) > 0 then
-        hs = (K.holyShockBase + K.holyShockCoef * sp) * sHit * (1 + 0.5 * spcrit) / K.holyShockCD
+    if useHS then
+        hs = (K.holyStrikeWeapon * swing + K.holyStrikeBase + K.holyStrikeCoef * sp)
+            * (1 + (t.sacredArbiter or 0) * K.sacredArbiterBonus)
+            * (landed + specialCrit) / K.holyStrikeCD
     end
     local exec = clamp(f.execute or 0, 0, 1)
     local how = exec * (K.howBase + K.howCoef * sp) * (1 - miss) * (1 + crit) / K.howCD
@@ -128,7 +135,7 @@ function Model.Dps(st)
         { dur / speed, whiteCrit },
         { dur * socPerSec, specialCrit },
         { dur / judge, sHit * crit },
-        { (t.holyShock or 0) > 0 and dur / K.holyShockCD or 0, sHit * spcrit },
+        { useHS and dur / K.holyStrikeCD or 0, specialCrit },
         { exec * dur / K.howCD, (1 - miss) * crit },
     }
     local n, pc = 0, 0
@@ -138,7 +145,7 @@ function Model.Dps(st)
 
     local raw = white + soc + joc + hs + how
     return raw * (1 + veng), {
-        white = white, soc = soc, joc = joc, holyShock = hs, how = how,
+        white = white, soc = soc, joc = joc, holyStrike = hs, how = how,
         vengeance = veng, stacks = stacks, miss = miss, spellMiss = 1 - sHit,
     }
 end

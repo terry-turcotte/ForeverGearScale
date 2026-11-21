@@ -59,9 +59,10 @@ function UnitDamage()   -- 60 weapon DPS at 3.6 speed, AP included
 end
 -- Talents: Retribution tree like the screenshots (names, ranks).
 local TALENTS = {
-    { { "Divine Strength", 0, 5 }, { "Holy Shock", 1, 1 } },
+    { { "Divine Strength", 0, 5 }, { "Holy Shock", 0, 1 } },
     { { "Redoubt", 0, 5 } },
-    { { "Benediction", 5, 5 }, { "Conviction", 1, 5 }, { "Vengeance", 3, 3 }, { "Champion of the Light", 5, 5 } },
+    { { "Benediction", 5, 5 }, { "Conviction", 1, 5 }, { "Vengeance", 3, 3 }, { "Champion of the Light", 5, 5 },
+        { "Sacred Arbiter", 1, 1 } },
 }
 function GetNumTalentTabs() return 3 end
 function GetNumTalents(tab) return #TALENTS[tab] end
@@ -185,7 +186,7 @@ end)
 local M = NS.Model
 local function state(over)
     local st = M.DefaultState()
-    st.talents = { vengeance = 3, champion = 5, holyShock = 1 }
+    st.talents = { vengeance = 3, champion = 5, sacredArbiter = 1, holyStrike = 1 }
     for k, v in pairs(over or {}) do st[k] = v end
     return st
 end
@@ -219,16 +220,31 @@ end)
 test("model: crit loses value as Vengeance saturates; no Vengeance, flatter", function()
     local lo, hi = M.Weights(state({ crit = 10 })).crit, M.Weights(state({ crit = 30 })).crit
     assert(lo > hi * 1.5, lo .. " vs " .. hi)
-    local nv = state({ crit = 10 }); nv.talents = { vengeance = 0, champion = 5, holyShock = 1 }
+    local nv = state({ crit = 10 }); nv.talents = { vengeance = 0, champion = 5, sacredArbiter = 1, holyStrike = 1 }
     assert(M.Weights(nv).crit < lo)
 end)
 
 test("model: Champion of the Light turns Intellect into spell damage", function()
     local w5 = M.Weights(state())
-    local s0 = state(); s0.talents = { vengeance = 3, champion = 0, holyShock = 1 }
+    local s0 = state(); s0.talents = { vengeance = 3, champion = 0, sacredArbiter = 1, holyStrike = 1 }
     local w0 = M.Weights(s0)
     assert(math.abs((w5.int - w0.int) - 0.6 * w5.spdmg) < 0.01, "60% of Int as spell damage")
     near(w5.str, 10, "1 Str = 2 AP = 10 pts"); near(w5.ap, 5); near(w5.wdps, 70, "1 weapon DPS = 14 AP")
+end)
+
+test("model: Holy Strike on cooldown, Sacred Arbiter +20%", function()
+    local st = state()
+    local _, a = M.Dps(st)
+    st.talents = { vengeance = 3, champion = 5, sacredArbiter = 0, holyStrike = 1 }
+    local _, b = M.Dps(st)
+    near(a.holyStrike, b.holyStrike * 1.2)
+    st.talents.holyStrike = 0
+    local _, c = M.Dps(st)
+    eq(c.holyStrike, 0)
+    -- it's a melee strike: hit counts for it, spell hit doesn't
+    local s1 = state({ hit = 5 })
+    local _, x = M.Dps(s1); local _, y = M.Dps(M.Apply(s1, { hit = 1 }))
+    assert(y.holyStrike > x.holyStrike)
 end)
 
 test("model: swap delta is exact across the hit cap", function()
@@ -265,7 +281,8 @@ test("profile: reads the sheet and talents, live weights", function()
     local p = NS.Profile.Get()
     eq(p.specName, "Retribution")
     eq(p.state.ap, 1200); eq(p.state.crit, 20); eq(p.state.hit, 5); eq(p.state.sp, 80); eq(p.state.target, 63)
-    eq(p.state.talents.vengeance, 3); eq(p.state.talents.champion, 5); eq(p.state.talents.holyShock, 1)
+    eq(p.state.talents.vengeance, 3); eq(p.state.talents.champion, 5); eq(p.state.talents.sacredArbiter, 1)
+    eq(p.state.talents.holyStrike, 1)
     eq(#p.estimated, 0, table.concat(p.estimated, ","))
     near(p.state.wdps, 60, "weapon DPS backed out of the sheet damage")
     near(p.weights.str[1], 10); assert(p.weights.hit[1] > 50); eq(p.weights.sta[2], 10)
