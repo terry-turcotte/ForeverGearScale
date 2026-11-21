@@ -1,5 +1,5 @@
 -- Commands.lua
--- /fgs (or /gearscale) — view and tune the weights in game.
+-- /fgs (or /gearscale) — see what the addon read, and tune it in game.
 
 local _, NS = ...
 local Commands = {}
@@ -42,14 +42,16 @@ function Commands.ParseImport(str)
 end
 
 local function help()
-    say("commands:")
-    print("  /fgs status — class, spec and axis priority in use")
-    print("  /fgs weights — list the weights in use")
-    print("  /fgs spec auto||1||2||3 — pick the spec (auto = from talents)")
+    say("commands (Retribution Paladin):")
+    print("  /fgs status — character stats and talents read, the model's DPS and Vengeance uptime")
+    print("  /fgs weights — the weights in use (DPS ones are live, * = pinned by you)")
     print("  /fgs prio <dps> <def> <sus> — axis priority in % (e.g. 100 25 40)")
-    print("  /fgs weight <stat> <dps> <def> <sus> — change one stat (e.g. hit 0 0 0 once hit-capped)")
-    print("  /fgs reset — back to the preset for this spec")
-    print("  /fgs export — print the weights as a string; /fgs import <string> to load one")
+    print("  /fgs weight <stat> <dps> <def> <sus> — pin one stat's weight (no longer live)")
+    print("  /fgs unpin <stat> — let that stat follow the model again")
+    print("  /fgs set target||judge||execute <value> — boss level, sec between Judgements, execute share (0-1)")
+    print("  /fgs set vengeance||champion||holyshock <rank||auto> — talent rank if the client can't read it")
+    print("  /fgs reset — unpin everything, default priority and fight settings")
+    print("  /fgs export — print the weights as a string; /fgs import <string> to pin them")
     print("  /fgs talents — dump what the talent API returns (for bug reports)")
     print("  /fgs on||off — show or hide the tooltip lines")
 end
@@ -58,48 +60,55 @@ local function changed()
     NS.Profile.Invalidate()
 end
 
+local function profileOrSay()
+    local p = NS.Profile.Get()
+    if not p then say("this addon only scores gear for Paladins.") end
+    return p
+end
+
 local handlers = {}
 
 function handlers.status()
-    local p = NS.Profile.Get()
-    if not p then return say("no preset for this class.") end
-    say(string.format("%s · %s (spec %d, %s)%s", p.classFile, p.specName, p.specIndex, p.source,
-        p.overridden and " · custom weights" or ""))
+    local p = profileOrSay()
+    if not p then return end
+    local st, t = p.state, p.state.talents
+    say(string.format("Retribution · model %.0f DPS vs a level %d target%s", p.dps, st.target,
+        p.overridden and " · some weights pinned" or ""))
+    print(string.format("  AP %d · crit %.2f%% · hit %.1f%% · weapon skill %d · weapon %.1f DPS, %.2f speed",
+        st.ap, st.crit, st.hit, st.wskill, st.wdps, st.speed))
+    print(string.format("  Holy spell damage %d · spell crit %.2f%% · spell hit %.1f%%", st.sp, st.spcrit, st.spellhit))
+    print(string.format("  talents: Vengeance %d · Champion of the Light %d · Holy Shock %s",
+        t.vengeance or 0, t.champion or 0, (t.holyShock or 0) > 0 and "yes" or "no"))
+    local x = p.parts
+    print(string.format("  melee miss %.1f%% · spell miss %.0f%% · Vengeance %.1f stacks avg (+%.1f%% damage)",
+        x.miss * 100, x.spellMiss * 100, x.stacks, x.vengeance * 100))
+    print(string.format("  DPS: white %.0f · Seal of Command %.0f · Judgement %.0f · Holy Shock %.0f · Hammer %.0f",
+        x.white, x.soc, x.joc, x.holyShock, x.how))
     print(string.format("  priority: %s %d%% · %s %d%% · %s %d%%",
         p.axes[1], p.prio[1], p.axes[2], p.prio[2], p.axes[3], p.prio[3]))
-    local t = p.talentPoints or {}
-    print(string.format("  talent points read: %s / %s / %s", t[1] or "?", t[2] or "?", t[3] or "?"))
+    if #p.estimated > 0 then
+        print("  not readable, using defaults: " .. table.concat(p.estimated, ", "))
+    end
 end
 
 function handlers.weights()
-    local p = NS.Profile.Get()
+    local p = profileOrSay()
     if not p then return end
-    say(p.specName .. " — points per stat (" .. table.concat(p.axes, " / ") .. "):")
+    say("points per stat (" .. table.concat(p.axes, " / ") .. "), 1 AP = 5 pts:")
     for _, s in ipairs(NS.STATS) do
         local w = p.weights[s.id]
         if w and (w[1] ~= 0 or w[2] ~= 0 or w[3] ~= 0) then
-            print(string.format("  %-9s %s: %s", s.id, s.name, fmtW(w)))
+            local w1 = math.floor(w[1] * 100 + 0.5) / 100
+            print(string.format("  %s%-9s %s: %s", p.pinned[s.id] and "*" or " ", s.id, s.name,
+                fmtW({ w1, w[2], w[3] })))
         end
     end
-end
-
-function handlers.spec(arg)
-    local _, classFile = UnitClass("player")
-    if arg == "auto" then
-        NS.db.specOverride[classFile] = nil
-    else
-        local n = tonumber(arg)
-        if not n or n < 1 or n > 3 then return say("usage: /fgs spec auto||1||2||3") end
-        NS.db.specOverride[classFile] = n
-    end
-    changed(); handlers.status()
 end
 
 function handlers.prio(arg)
     local a, b, c = (arg or ""):match("^(%d+)%s+(%d+)%s+(%d+)$")
     if not a then return say("usage: /fgs prio 100 25 40") end
-    local p = NS.Profile.Get()
-    NS.db.prio[p.key] = { tonumber(a), tonumber(b), tonumber(c) }
+    NS.db.prio = { tonumber(a), tonumber(b), tonumber(c) }
     changed(); handlers.status()
 end
 
@@ -108,21 +117,44 @@ function handlers.weight(arg)
     if not id or not NS.STAT_BY_ID[id] then
         return say("usage: /fgs weight <stat> <dps> <def> <sus> — stat ids: see /fgs weights")
     end
-    local p = NS.Profile.Get()
-    NS.db.weights[p.key] = NS.db.weights[p.key] or {}
-    NS.db.weights[p.key][id] = { tonumber(a), tonumber(b), tonumber(c) }
+    NS.db.pins[id] = { tonumber(a), tonumber(b), tonumber(c) }
     changed()
-    say(NS.STAT_BY_ID[id].name .. " = " .. fmtW(NS.db.weights[p.key][id]))
+    say(NS.STAT_BY_ID[id].name .. " pinned at " .. fmtW(NS.db.pins[id]))
+end
+
+function handlers.unpin(arg)
+    if not NS.db.pins[arg or ""] then return say("not pinned: " .. tostring(arg)) end
+    NS.db.pins[arg] = nil
+    changed(); say(NS.STAT_BY_ID[arg].name .. " follows the model again.")
+end
+
+local FIGHT = { target = { 1, 83 }, judge = { 1, 60 }, execute = { 0, 1 } }
+local TALENT = { vengeance = "vengeance", champion = "champion", holyshock = "holyShock" }
+
+function handlers.set(arg)
+    local key, val = (arg or ""):lower():match("^(%S+)%s+(%S+)$")
+    local n = tonumber(val)
+    if key and FIGHT[key] then
+        if val == "auto" then NS.db.fight[key] = nil
+        elseif n and n >= FIGHT[key][1] and n <= FIGHT[key][2] then NS.db.fight[key] = n
+        else return say(string.format("%s must be between %g and %g, or auto", key, FIGHT[key][1], FIGHT[key][2])) end
+    elseif key and TALENT[key] then
+        if val == "auto" then NS.db.talents[TALENT[key]] = nil
+        elseif n and n >= 0 and n <= 5 then NS.db.talents[TALENT[key]] = n
+        else return say(key .. " must be a rank from 0 to 5, or auto") end
+    else
+        return say("usage: /fgs set target||judge||execute||vengeance||champion||holyshock <value||auto>")
+    end
+    changed(); handlers.status()
 end
 
 function handlers.reset()
-    local p = NS.Profile.Get()
-    NS.db.weights[p.key], NS.db.prio[p.key] = nil, nil
-    changed(); say("weights and priority reset to the " .. p.specName .. " preset.")
+    NS.db.pins, NS.db.fight, NS.db.talents, NS.db.prio = {}, {}, {}, nil
+    changed(); say("weights unpinned; priority, fight and talent settings back to default.")
 end
 
 function handlers.export()
-    local p = NS.Profile.Get()
+    local p = profileOrSay()
     if not p then return end
     say("copy this string:")
     print(Commands.Export(p))
@@ -131,16 +163,14 @@ end
 function handlers.import(arg)
     local weights, prio = Commands.ParseImport(arg or "")
     if not weights then return say("import failed: " .. tostring(prio)) end
-    local p = NS.Profile.Get()
-    NS.db.weights[p.key] = NS.db.weights[p.key] or {}
-    for id, w in pairs(weights) do NS.db.weights[p.key][id] = w end
-    if prio then NS.db.prio[p.key] = prio end
-    changed(); say("imported into " .. p.specName .. ".")
+    for id, w in pairs(weights) do NS.db.pins[id] = w end
+    if prio then NS.db.prio = prio end
+    changed(); say("imported (those stats are now pinned; /fgs reset to go back to live weights).")
 end
 
 function handlers.on() NS.db.enabled = true; say("on.") end
 function handlers.off() NS.db.enabled = false; say("off.") end
--- Raw talent API dump, to diagnose spec detection on a client we can't test.
+-- Raw talent API dump, to check talent reading on a client we can't test.
 local function show(v)
     if type(v) ~= "table" then return tostring(v) end
     local parts = {}
@@ -150,36 +180,25 @@ local function show(v)
     table.sort(parts)
     return "{" .. table.concat(parts, ", ") .. "}"
 end
-local function dump(label, f, ...)
-    if not f then return print("  " .. label .. ": (missing)") end
-    local r = { pcall(f, ...) }
-    local out = {}
-    for i = 2, math.max(#r, 2) do out[#out + 1] = show(r[i]) end
-    print("  " .. label .. ": " .. (r[1] and "" or "ERROR ") .. table.concat(out, ", "))
-end
 
 function handlers.talents()
     local CSI = C_SpecializationInfo or {}
     say("talent API on this client:")
     local fns = {}
-    for _, name in ipairs({ "GetTalentTabInfo", "GetNumTalentTabs", "GetNumTalents", "GetTalentInfo",
-        "GetSpecialization", "GetActiveTalentGroup", "GetPrimaryTalentTree" }) do
+    for _, name in ipairs({ "GetNumTalentTabs", "GetNumTalents", "GetTalentInfo" }) do
         fns[#fns + 1] = name .. (_G[name] and "+" or "-")
     end
-    print("  globals: " .. table.concat(fns, " "))
-    local csi = {}
-    for k, v in pairs(CSI) do if type(v) == "function" then csi[#csi + 1] = k end end
-    table.sort(csi)
-    print("  C_SpecializationInfo: " .. (#csi > 0 and table.concat(csi, " ") or "(none)"))
-    for i = 1, 3 do dump("tab " .. i, NS.TalentAPI.tabInfo(), i) end
+    print("  globals: " .. table.concat(fns, " ") .. " · C_SpecializationInfo.GetTalentInfo"
+        .. (CSI.GetTalentInfo and "+" or "-"))
     if GetTalentInfo then
-        dump("talent 3,1", GetTalentInfo, 3, 1)
-    elseif CSI.GetTalentInfo then
-        dump("talent 3,1", CSI.GetTalentInfo, { specializationIndex = 3, talentIndex = 1 })
+        local r = { pcall(GetTalentInfo, 3, 1) }
+        local out = {}
+        for i = 2, math.max(#r, 2) do out[#out + 1] = show(r[i]) end
+        print("  talent 3,1: " .. (r[1] and "" or "ERROR ") .. table.concat(out, ", "))
     end
-    dump("numTalents 3", GetNumTalents or CSI.GetNumTalents, 3)
-    dump("spec", CSI.GetSpecialization or GetSpecialization)
-    NS.Profile.Invalidate(); handlers.status()
+    local t, any = NS.Character.ReadTalents()
+    print(string.format("  read: Vengeance %d · Champion of the Light %d · Holy Shock %d%s",
+        t.vengeance, t.champion, t.holyShock, any and "" or " (talent API gave nothing)"))
 end
 
 function handlers.debug() NS.db.debug = not NS.db.debug; say("debug " .. (NS.db.debug and "on" or "off")) end

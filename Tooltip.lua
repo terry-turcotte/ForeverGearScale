@@ -1,7 +1,7 @@
 -- Tooltip.lua
 -- The event from the sketch: an item tooltip is shown. We find what the player
--- wears in that slot, score both items with the current class/spec weights,
--- and add the result to the tooltip.
+-- wears in that slot, score both items with the live Ret weights, and add the
+-- result to the tooltip.
 
 local _, NS = ...
 local C = NS.Compat
@@ -148,7 +148,8 @@ local function onItemTooltip(tt)
     for _, o in ipairs(opts) do
         for _, l in ipairs(o.links) do
             if ItemStats.Key(l) == key then
-                local res = NS.Scoring.Compare({}, candidate, profile.weights, profile.prio)
+                local res = NS.Scoring.Compare({}, candidate, profile.weights, profile.prio,
+                    -profile.dpsDelta(candidate, {}))   -- what it adds over not wearing it
                 render(tt, profile, res, nil, 0, true)
                 tt:Show()
                 return
@@ -161,7 +162,8 @@ local function onItemTooltip(tt)
     for _, o in ipairs(opts) do
         local eq = ItemStats.Sum(o.links)
         if eq then
-            local res = NS.Scoring.Compare(eq, candidate, profile.weights, profile.prio)
+            local res = NS.Scoring.Compare(eq, candidate, profile.weights, profile.prio,
+                profile.dpsDelta(eq, candidate))
             if not best or res.total > best.total then best, bestLabel = res, o.label end
         end
     end

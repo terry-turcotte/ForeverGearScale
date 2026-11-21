@@ -25,8 +25,10 @@ end
 Scoring.Classify = classify
 
 -- equipped = stats of what you wear (A), candidate = stats of the item (B).
-function Scoring.Compare(equipped, candidate, weights, prio)
+-- dpsDelta (optional) replaces the linear DPS difference with the model's.
+function Scoring.Compare(equipped, candidate, weights, prio, dpsDelta)
     local A, B = Scoring.Score(equipped, weights), Scoring.Score(candidate, weights)
+    if dpsDelta then B[1] = A[1] + dpsDelta end
     local D, status = {}, {}
     local ups, downs = 0, 0
     for i = 1, 3 do

@@ -17,6 +17,7 @@ NS.STATS = {
     { id = "crit",     name = "Crit %",               group = "offense" },
     { id = "wskill",   name = "Weapon skill",         group = "offense" },
     { id = "wdps",     name = "Weapon DPS",           group = "offense" },
+    { id = "speed",    name = "Weapon speed",         group = "offense" },
     { id = "spdmg",    name = "Spell damage",         group = "spell" },
     { id = "spboth",   name = "Spell dmg + healing",  group = "spell" },
     { id = "heal",     name = "Healing power",        group = "spell" },

@@ -44,6 +44,13 @@ local function cleanText(t)
 end
 C.CleanText = cleanText
 
+-- Weapon speed sits in the right-hand text of the damage line; that's the only
+-- right-hand text we keep ("Speed 3.60", "Vitesse 3,60").
+local function isSpeed(t)
+    return type(t) == "string" and not C.IsSecret(t) and t:find("%d[%.,]%d%d") ~= nil
+        and (t:find("Speed", 1, true) or t:find("Vitesse", 1, true)) ~= nil
+end
+
 -- Legacy path: render the link into a hidden tooltip and read its font strings.
 local scanTip
 local function linesFromScanTooltip(link)
@@ -59,6 +66,9 @@ local function linesFromScanTooltip(link)
         local fs = _G["ForeverGearScaleScanTipTextLeft" .. i]
         local t = fs and fs:GetText()
         if t then out[#out + 1] = cleanText(t) end
+        local r = _G["ForeverGearScaleScanTipTextRight" .. i]
+        r = r and r:GetText()
+        if isSpeed(r) then out[#out + 1] = cleanText(r) end
     end
     scanTip:Hide()
     return out
@@ -75,6 +85,7 @@ function C.GetTooltipLines(link)
                     TooltipUtil.SurfaceArgs(line)
                 end
                 if line.leftText then out[#out + 1] = cleanText(line.leftText) end
+                if isSpeed(line.rightText) then out[#out + 1] = cleanText(line.rightText) end
             end
             return out
         end

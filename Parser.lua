@@ -79,6 +79,11 @@ function Parser.Parse(lines)
                     local m = l:match("%(([%d%.,]+)%s*damage per second") or l:match("%(([%d%.,]+)%s*dégâts par seconde")
                     if m then add("wdps", tonum(m)); done = true end
                 end
+                -- "Speed 3.60" / "Vitesse 3,60" (the right-hand text of the damage line)
+                if not done then
+                    local m = l:match("^speed%s+([%d%.,]+)$") or l:match("^vitesse%s+([%d%.,]+)$")
+                    if m then add("speed", tonum(m)); done = true end
+                end
 
                 if not done then
                     local spell = has(l, "spell", "sort")
