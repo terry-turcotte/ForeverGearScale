@@ -8,50 +8,43 @@ NS.Commands = Commands
 local P = "|cffe3bb5eGear Scale|r "
 local function say(msg) print(P .. msg) end
 
-local function fmtW(w) return string.format("%g / %g / %g", w[1], w[2], w[3]) end
+local function fmtW(w) return string.format("%g", math.floor(w * 100 + 0.5) / 100) end
 
--- Export/import format, shared with the web page:
---   str=10/0.3/0;agi=3.5/4/0;...|prio=100/25/40
+-- Export/import format: str=10;agi=3.5;...  (points per stat, 1 AP = 5).
+-- Imports also accept the older 3-axis strings (str=10/0.3/0;...|prio=...):
+-- only the DPS number is kept.
 function Commands.Export(profile)
     local ids = {}
     for _, s in ipairs(NS.STATS) do
         local w = profile.weights[s.id]
         if w then  -- zeros included, so "hit = 0 once capped" survives a round trip
-            ids[#ids + 1] = string.format("%s=%g/%g/%g", s.id, w[1], w[2], w[3])
+            ids[#ids + 1] = s.id .. "=" .. fmtW(w)
         end
     end
-    local p = profile.prio
-    return table.concat(ids, ";") .. string.format("|prio=%g/%g/%g", p[1], p[2], p[3])
+    return table.concat(ids, ";")
 end
 
--- Returns weights, prio (either may be nil) or nil, error.
+-- Returns weights or nil, error.
 function Commands.ParseImport(str)
-    local weights, prio = {}, nil
-    local body, prioPart = str:match("^(.-)|prio=(.+)$")
-    body = body or str
-    if prioPart then
-        local a, b, c = prioPart:match("^%s*([%d%.]+)/([%d%.]+)/([%d%.]+)")
-        if not a then return nil, "bad prio" end
-        prio = { tonumber(a), tonumber(b), tonumber(c) }
+    local weights = {}
+    local body = str:match("^(.-)|prio=") or str
+    for id, v in body:gmatch("([%w_]+)=(%-?[%d%.]+)") do
+        if NS.STAT_BY_ID[id] then weights[id] = tonumber(v) end
     end
-    for id, a, b, c in body:gmatch("([%w_]+)=(%-?[%d%.]+)/(%-?[%d%.]+)/(%-?[%d%.]+)") do
-        if NS.STAT_BY_ID[id] then weights[id] = { tonumber(a), tonumber(b), tonumber(c) } end
-    end
-    if not next(weights) and not prio then return nil, "nothing recognised" end
-    return weights, prio
+    if not next(weights) then return nil, "nothing recognised" end
+    return weights
 end
 
 local function help()
     say("commands (Retribution Paladin):")
     print("  /fgs status — character stats and talents read, the model's DPS and Vengeance uptime")
-    print("  /fgs weights — the weights in use (DPS ones are live, * = pinned by you)")
-    print("  /fgs prio <dps> <def> <sus> — axis priority in % (e.g. 100 25 40)")
-    print("  /fgs weight <stat> <dps> <def> <sus> — pin one stat's weight (no longer live)")
+    print("  /fgs weights — points per stat, live from your stats (1 AP = 5, * = pinned by you)")
+    print("  /fgs weight <stat> <points> — pin one stat's weight (no longer live)")
     print("  /fgs unpin <stat> — let that stat follow the model again")
     print("  /fgs set target||judge||execute <value> — boss level, sec between Judgements, execute share (0-1)")
     print("  /fgs set vengeance||champion||arbiter <rank||auto> — talent rank if the client can't read it")
     print("  /fgs set holystrike 0||1 — take Holy Strike out of (or back into) the rotation")
-    print("  /fgs reset — unpin everything, default priority and fight settings")
+    print("  /fgs reset — unpin everything, default fight and talent settings")
     print("  /fgs export — print the weights as a string; /fgs import <string> to pin them")
     print("  /fgs talents — dump what the talent API returns (for bug reports)")
     print("  /fgs on||off — show or hide the tooltip lines")
@@ -85,8 +78,6 @@ function handlers.status()
         x.miss * 100, x.spellMiss * 100, x.stacks, x.vengeance * 100))
     print(string.format("  DPS: white %.0f · Seal of Command %.0f · Holy Strike %.0f · Judgement %.0f · Hammer %.0f",
         x.white, x.soc, x.holyStrike, x.joc, x.how))
-    print(string.format("  priority: %s %d%% · %s %d%% · %s %d%%",
-        p.axes[1], p.prio[1], p.axes[2], p.prio[2], p.axes[3], p.prio[3]))
     if #p.estimated > 0 then
         print("  not readable, using defaults: " .. table.concat(p.estimated, ", "))
     end
@@ -95,30 +86,21 @@ end
 function handlers.weights()
     local p = profileOrSay()
     if not p then return end
-    say("points per stat (" .. table.concat(p.axes, " / ") .. "), 1 AP = 5 pts:")
+    say("DPS points per stat (1 AP = 5 pts):")
     for _, s in ipairs(NS.STATS) do
         local w = p.weights[s.id]
-        if w and (w[1] ~= 0 or w[2] ~= 0 or w[3] ~= 0) then
-            local w1 = math.floor(w[1] * 100 + 0.5) / 100
-            print(string.format("  %s%-9s %s: %s", p.pinned[s.id] and "*" or " ", s.id, s.name,
-                fmtW({ w1, w[2], w[3] })))
+        if w and w ~= 0 or p.pinned[s.id] then
+            print(string.format("  %s%-9s %s: %s", p.pinned[s.id] and "*" or " ", s.id, s.name, fmtW(w)))
         end
     end
 end
 
-function handlers.prio(arg)
-    local a, b, c = (arg or ""):match("^(%d+)%s+(%d+)%s+(%d+)$")
-    if not a then return say("usage: /fgs prio 100 25 40") end
-    NS.db.prio = { tonumber(a), tonumber(b), tonumber(c) }
-    changed(); handlers.status()
-end
-
 function handlers.weight(arg)
-    local id, a, b, c = (arg or ""):match("^(%S+)%s+(%-?[%d%.]+)%s+(%-?[%d%.]+)%s+(%-?[%d%.]+)$")
+    local id, v = (arg or ""):match("^(%S+)%s+(%-?[%d%.]+)$")
     if not id or not NS.STAT_BY_ID[id] then
-        return say("usage: /fgs weight <stat> <dps> <def> <sus> — stat ids: see /fgs weights")
+        return say("usage: /fgs weight <stat> <points> — stat ids: see /fgs weights")
     end
-    NS.db.pins[id] = { tonumber(a), tonumber(b), tonumber(c) }
+    NS.db.pins[id] = tonumber(v)
     changed()
     say(NS.STAT_BY_ID[id].name .. " pinned at " .. fmtW(NS.db.pins[id]))
 end
@@ -151,8 +133,8 @@ function handlers.set(arg)
 end
 
 function handlers.reset()
-    NS.db.pins, NS.db.fight, NS.db.talents, NS.db.prio = {}, {}, {}, nil
-    changed(); say("weights unpinned; priority, fight and talent settings back to default.")
+    NS.db.pins, NS.db.fight, NS.db.talents = {}, {}, {}
+    changed(); say("weights unpinned; fight and talent settings back to default.")
 end
 
 function handlers.export()
@@ -163,10 +145,9 @@ function handlers.export()
 end
 
 function handlers.import(arg)
-    local weights, prio = Commands.ParseImport(arg or "")
-    if not weights then return say("import failed: " .. tostring(prio)) end
+    local weights, err = Commands.ParseImport(arg or "")
+    if not weights then return say("import failed: " .. tostring(err)) end
     for id, w in pairs(weights) do NS.db.pins[id] = w end
-    if prio then NS.db.prio = prio end
     changed(); say("imported (those stats are now pinned; /fgs reset to go back to live weights).")
 end
 

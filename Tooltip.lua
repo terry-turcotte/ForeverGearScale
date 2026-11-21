@@ -16,12 +16,10 @@ local COLOR = {
     loss = { 1.00, 0.44, 0.44 },
     even = { 0.61, 0.56, 0.50 },
 }
-local AXIS_COLOR = { "|cfff0a04b", "|cff6aa8ff", "|cffb48cff" }
 -- The game font has no arrows or symbols (they show as boxes): ASCII only.
 local VERDICT = {
     upgrade   = "|cff78d48aUpgrade|r",
     downgrade = "|cffff6f6fDowngrade|r",
-    tradeoff  = GOLD .. "Trade-off|r",
     sidegrade = GREY .. "Sidegrade|r",
 }
 
@@ -85,31 +83,32 @@ end
 
 local function addSpacer(tt) tt:AddLine(" ") end
 
-local function render(tt, profile, res, label, missCount, isEquipped)
+local DPS_COLOR = "|cfff0a04b"
+
+-- "+4.3 DPS (+1.7%)"
+local function fmtDps(gain, dps)
+    local r = math.floor(gain * 10 + (gain >= 0 and 0.5 or -0.5)) / 10
+    local pct = (dps and dps > 0) and string.format(" (%s%.1f%%)", gain >= 0 and "+" or "", gain / dps * 100) or ""
+    return (r > 0 and "+" or "") .. string.format("%.1f", r) .. " DPS" .. pct
+end
+
+local function render(tt, profile, res, gain, label, missCount, isEquipped)
     addSpacer(tt)
     local header = GOLD .. "Gear Scale|r " .. GREY .. "· " .. (profile.specName or "?") .. "|r"
     if isEquipped then
         tt:AddDoubleLine(header, GREY .. "Equipped|r")
-        for i = 1, 3 do
-            if (profile.prio[i] or 0) > 0 then
-                tt:AddDoubleLine("  " .. AXIS_COLOR[i] .. profile.axes[i] .. "|r", fmt(res.B[i]), 1, 1, 1, 1, 1, 1)
-            end
-        end
+        tt:AddDoubleLine("  " .. DPS_COLOR .. "DPS score|r", fmt(res.B), 1, 1, 1, 1, 1, 1)
+        tt:AddDoubleLine("  " .. GREY .. "Worth about|r", fmtDps(gain, profile.dps), 1, 1, 1, 1, 1, 1)
         return
     end
 
     tt:AddDoubleLine(header, VERDICT[res.verdict])
-    for i = 1, 3 do
-        if (profile.prio[i] or 0) > 0 then
-            local c = COLOR[res.status[i]]
-            tt:AddDoubleLine(
-                "  " .. AXIS_COLOR[i] .. profile.axes[i] .. "|r " .. GREY .. fmt(res.A[i]) .. " > " .. fmt(res.B[i]) .. "|r",
-                fmt(res.D[i], true), 1, 1, 1, c[1], c[2], c[3])
-        end
-    end
-    local c = COLOR[res.totalStatus]
-    tt:AddDoubleLine("  Weighted total" .. (label and (GREY .. "  vs " .. label .. "|r") or ""),
-        fmt(res.total, true), 1, 1, 1, c[1], c[2], c[3])
+    local c = COLOR[res.status]
+    tt:AddDoubleLine(
+        "  " .. DPS_COLOR .. "DPS score|r " .. GREY .. fmt(res.A) .. " > " .. fmt(res.B) .. "|r",
+        fmt(res.D, true), 1, 1, 1, c[1], c[2], c[3])
+    tt:AddDoubleLine("  " .. GREY .. "Model" .. (label and ("  vs " .. label) or "") .. "|r",
+        fmtDps(gain, profile.dps), 1, 1, 1, c[1], c[2], c[3])
 
     if IsShiftKeyDown() then
         for n = 1, math.min(4, #res.swings) do
@@ -148,9 +147,10 @@ local function onItemTooltip(tt)
     for _, o in ipairs(opts) do
         for _, l in ipairs(o.links) do
             if ItemStats.Key(l) == key then
-                local res = NS.Scoring.Compare({}, candidate, profile.weights, profile.prio,
-                    -profile.dpsDelta(candidate, {}))   -- what it adds over not wearing it
-                render(tt, profile, res, nil, 0, true)
+                -- what it adds over not wearing it
+                local pts, gain = profile.dpsDelta(candidate, {})
+                local res = NS.Scoring.Compare({}, candidate, profile.weights, -pts)
+                render(tt, profile, res, -gain, nil, 0, true)
                 tt:Show()
                 return
             end
@@ -158,17 +158,17 @@ local function onItemTooltip(tt)
     end
 
     -- Otherwise compare against each slot it could replace; keep the best.
-    local best, bestLabel
+    local best, bestGain, bestLabel
     for _, o in ipairs(opts) do
         local eq = ItemStats.Sum(o.links)
         if eq then
-            local res = NS.Scoring.Compare(eq, candidate, profile.weights, profile.prio,
-                profile.dpsDelta(eq, candidate))
-            if not best or res.total > best.total then best, bestLabel = res, o.label end
+            local pts, gain = profile.dpsDelta(eq, candidate)
+            local res = NS.Scoring.Compare(eq, candidate, profile.weights, pts)
+            if not best or res.D > best.D then best, bestGain, bestLabel = res, gain, o.label end
         end
     end
     if not best then return end
-    render(tt, profile, best, bestLabel, #candMiss, false)
+    render(tt, profile, best, bestGain, bestLabel, #candMiss, false)
     tt:Show()   -- resize to fit the new lines
 end
 

@@ -195,13 +195,14 @@ function Model.Weights(st)
     return w
 end
 
--- DPS-axis points gained by swapping `equipped` for `candidate`, computed on
--- the full model (not linear), so crossing the hit cap is counted right.
--- Stats in `skip` are left out (the player pinned their weight).
+-- Points gained by swapping `equipped` for `candidate`, computed on the full
+-- model (not linear), so crossing the hit cap is counted right. Also returns
+-- the raw DPS change and the current DPS. Stats in `skip` are left out (the
+-- player pinned their weight).
 function Model.Delta(st, equipped, candidate, skip)
     local base = Model.Dps(st)
     local ap = perAP(st, base)
-    if not ap then return 0 end
+    if not ap then return 0, 0, base end
     local d = {}
     for id in pairs(Model.STEP) do
         if not (skip and skip[id]) then
@@ -211,5 +212,12 @@ function Model.Delta(st, equipped, candidate, skip)
     local n = Model.Apply(st, d)
     -- Weapon swap: the new weapon's speed replaces the old one.
     if candidate.speed and candidate.speed > 0 then n.speed = candidate.speed end
-    return 5 * (Model.Dps(n) - base) / ap
+    local gain = Model.Dps(n) - base
+    return 5 * gain / ap, gain, base
+end
+
+-- Points per 1 DPS at the current state (to turn pinned points back into DPS).
+function Model.PointsPerDps(st)
+    local ap = perAP(st, Model.Dps(st))
+    return ap and 5 / ap or nil
 end

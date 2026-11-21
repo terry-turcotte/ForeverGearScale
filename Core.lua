@@ -9,10 +9,9 @@ local DEFAULTS = {
     showHint = true,
     ignoreEnchants = true,
     debug = false,
-    pins = {},      -- stats whose weight you set by hand: { hit = {0, 0, 0}, ... }
+    pins = {},      -- stats whose DPS weight you set by hand: { hit = 0, ... }
     fight = {},     -- { target = 63, judge = 9, execute = 0.2 } (only what you changed)
-    talents = {},   -- talent ranks set by hand: { vengeance = 3, champion = 5, holyShock = 1 }
-    -- prio = {100, 25, 40} when changed
+    talents = {},   -- talent ranks set by hand: { vengeance = 3, champion = 5, sacredArbiter = 1, holyStrike = 0 }
 }
 
 local function initDB()
@@ -22,8 +21,12 @@ local function initDB()
         db.pins = db.pins or db.weights["PALADIN:3"]
         db.weights = nil
     end
-    if type(db.prio) == "table" and db.prio[1] == nil then db.prio = db.prio["PALADIN:3"] end
-    db.specOverride = nil
+    -- 0.2 betas pinned { dps, defense, sustain }: keep the DPS number. No more
+    -- axis priority.
+    for id, w in pairs(db.pins or {}) do
+        if type(w) == "table" then db.pins[id] = tonumber(w[1]) or 0 end
+    end
+    db.prio, db.specOverride = nil, nil
     for k, v in pairs(DEFAULTS) do
         if db[k] == nil then db[k] = type(v) == "table" and {} or v end
     end
