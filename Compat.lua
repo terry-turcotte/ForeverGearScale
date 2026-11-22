@@ -44,6 +44,13 @@ local function cleanText(t)
 end
 C.CleanText = cleanText
 
+-- Weapon speed sits in the right-hand text of the damage line; that's the only
+-- right-hand text we keep ("Speed 3.60", "Vitesse 3,60").
+local function isSpeed(t)
+    return type(t) == "string" and not C.IsSecret(t) and t:find("%d[%.,]%d%d") ~= nil
+        and (t:find("Speed", 1, true) or t:find("Vitesse", 1, true)) ~= nil
+end
+
 -- Legacy path: render the link into a hidden tooltip and read its font strings.
 local scanTip
 local function linesFromScanTooltip(link)
@@ -59,6 +66,9 @@ local function linesFromScanTooltip(link)
         local fs = _G["ForeverGearScaleScanTipTextLeft" .. i]
         local t = fs and fs:GetText()
         if t then out[#out + 1] = cleanText(t) end
+        local r = _G["ForeverGearScaleScanTipTextRight" .. i]
+        r = r and r:GetText()
+        if isSpeed(r) then out[#out + 1] = cleanText(r) end
     end
     scanTip:Hide()
     return out
@@ -75,6 +85,7 @@ function C.GetTooltipLines(link)
                     TooltipUtil.SurfaceArgs(line)
                 end
                 if line.leftText then out[#out + 1] = cleanText(line.leftText) end
+                if isSpeed(line.rightText) then out[#out + 1] = cleanText(line.rightText) end
             end
             return out
         end
@@ -86,4 +97,42 @@ end
 -- clients, so do it under pcall.
 function C.SafeRegister(frame, event)
     return pcall(frame.RegisterEvent, frame, event)
+end
+
+-- Every text of a spell's tooltip (left and right), or its description.
+function C.GetSpellLines(spellID)
+    local out = {}
+    if C_TooltipInfo and C_TooltipInfo.GetSpellByID then
+        local ok, data = pcall(C_TooltipInfo.GetSpellByID, spellID)
+        if ok and type(data) == "table" and data.lines then
+            for _, line in ipairs(data.lines) do
+                if line.leftText == nil and TooltipUtil and TooltipUtil.SurfaceArgs then
+                    pcall(TooltipUtil.SurfaceArgs, line)
+                end
+                for _, t in ipairs({ line.leftText, line.rightText }) do
+                    if type(t) == "string" and not C.IsSecret(t) then out[#out + 1] = cleanText(t) end
+                end
+            end
+        end
+    end
+    if #out == 0 then
+        local f = (C_Spell and C_Spell.GetSpellDescription) or GetSpellDescription
+        if f then
+            local ok, d = pcall(f, spellID)
+            if ok and type(d) == "string" and d ~= "" and not C.IsSecret(d) then out[1] = cleanText(d) end
+        end
+    end
+    return out
+end
+
+-- Spell id of a spell in your spellbook, by name; nil if you don't know it.
+function C.GetKnownSpellID(name)
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, name)
+        if ok and type(info) == "table" and info.spellID then return info.spellID end
+    end
+    if GetSpellInfo then
+        local r = { pcall(GetSpellInfo, name) }
+        if r[1] and r[2] then return r[8] end   -- name, rank, icon, castTime, minRange, maxRange, spellID
+    end
 end

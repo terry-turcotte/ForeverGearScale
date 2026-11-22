@@ -26,14 +26,20 @@ print = function(...) printed[#printed + 1] = table.concat({ ... }, " ") end
 
 local ITEMS = {}       -- link -> { equipLoc = ..., lines = {...} }
 local EQUIPPED = {}    -- slot -> link
-local PLAYER = { class = "PALADIN", tabs = { 5, 11, 31 } }
+local PLAYER = { class = "PALADIN" }
 local SHIFT = false
 
 C_Item = { GetItemInfoInstant = function(link)
     local it = ITEMS[(link:gsub("(item:%-?%d+):[^:|]*:[^:|]*:[^:|]*:[^:|]*:[^:|]*", "%1:::::"))] or ITEMS[link]
     if it then return 1, "Armor", "Plate", it.equipLoc end
 end }
-C_TooltipInfo = { GetHyperlink = function(link)
+C_TooltipInfo = { GetSpellByID = function(id)
+    local t = BY_ID[id]
+    if not t then return nil end
+    local lines = {}
+    for i, x in ipairs(t) do lines[i] = { leftText = x } end
+    return { lines = lines }
+end, GetHyperlink = function(link)
     local it = ITEMS[link]
     if not it then return nil end
     local lines = {}
@@ -41,9 +47,49 @@ C_TooltipInfo = { GetHyperlink = function(link)
     return { lines = lines }
 end }
 function UnitClass() return "Paladin", PLAYER.class end
+-- Spellbook: name -> { id, tooltip lines }
+local SPELLBOOK = {
+    ["Hammer of Wrath"] = { 24239, { "Hammer of Wrath", "Rank 3", "425 Mana", "30 yd range", "1 sec cast",
+        "6 sec cooldown", "Hurls a hammer that strikes an enemy for 316 to 348 Holy damage. Only usable on enemies that have 20% or less health." } },
+    ["Holy Strike"] = { 900008, { "Holy Strike", "Melee Range", "10 sec cooldown",
+        "An instant strike that causes 50% of weapon damage plus 40 Holy damage." } },
+    ["Seal of Command"] = { 20920, { "Seal of Command", "Gives the Paladin a chance to deal additional Holy damage equal to 70% of normal weapon damage. Lasts 30 sec. Unleashing this Seal's energy will judge an enemy, instantly causing 68.5 to 73.5 Holy damage, 137 to 147 if the target is stunned or incapacitated." } },
+}
+BY_ID = {}   -- global: the C_TooltipInfo stub above reads it
+for _, v in pairs(SPELLBOOK) do BY_ID[v[1]] = v[2] end
+C_Spell = { GetSpellInfo = function(name)
+    local s = SPELLBOOK[name]
+    if s then return { name = name, spellID = s[1] } end
+end }
+-- Character sheet: a geared level 60 Ret.
+local SHEET = { level = 60, ap = 1200, crit = 20, hit = 5, spellhit = 0, spcrit = 9, sp = 80,
+    speed = 3.6, skill = 300 }
+function UnitLevel() return SHEET.level end
+function UnitAttackPower() return SHEET.ap - 200, 200, 0 end
+function GetCritChance() return SHEET.crit end
+function GetHitModifier() return SHEET.hit end
+function GetSpellHitModifier() return SHEET.spellhit end
+function GetSpellCritChance() return SHEET.spcrit end
+function GetSpellBonusDamage() return SHEET.sp end
+function UnitAttackSpeed() return SHEET.speed end
+function UnitAttackBothHands() return SHEET.skill, 0 end
+function UnitDamage()   -- 60 weapon DPS at 3.6 speed, AP included
+    local avg = (60 + SHEET.ap / 14) * SHEET.speed
+    return avg - 20, avg + 20
+end
+-- Talents: Retribution tree like the screenshots (names, ranks).
+local TALENTS = {
+    { { "Divine Strength", 0, 5 }, { "Holy Shock", 0, 1 } },
+    { { "Redoubt", 0, 5 } },
+    { { "Benediction", 5, 5 }, { "Conviction", 1, 5 }, { "Vengeance", 3, 3 }, { "Champion of the Light", 5, 5 },
+        { "Sacred Arbiter", 1, 1 } },
+}
 function GetNumTalentTabs() return 3 end
-local TAB_NAMES = { "Holy", "Protection", "Retribution" }
-function GetTalentTabInfo(i) return TAB_NAMES[i], "icon", PLAYER.tabs[i], "file" end
+function GetNumTalents(tab) return #TALENTS[tab] end
+function GetTalentInfo(tab, i)
+    local t = TALENTS[tab][i]
+    if t then return t[1], "icon", 1, i, t[2], t[3] end
+end
 function GetInventoryItemLink(_, slot) return EQUIPPED[slot] end
 function IsShiftKeyDown() return SHIFT end
 
@@ -141,105 +187,211 @@ test("parser: caster, weapon and defense lines", function()
     eq(s.spcrit, 1); eq(s.heal, 22); eq(s.def, 7); eq(s.wskill, 5); eq(s.rap, 24); eq(s.ap, nil)
 end)
 
----------------------------------------------------------------- presets
-test("presets: 9 classes x 3 specs, sane weights", function()
-    local n = 0
-    for classFile, specs in pairs(NS.PRESETS) do
-        for i = 1, 3 do
-            local p = specs[i]
-            assert(p and p.name and p.weights and #p.axes == 3 and #p.prio == 3, classFile .. i)
-            for id, w in pairs(p.weights) do
-                assert(NS.STAT_BY_ID[id], classFile .. i .. " unknown stat " .. id)
-                assert(#w == 3, classFile .. i .. " " .. id)
-            end
-            n = n + 1
-        end
-        assert(specs.defaultSpec >= 1 and specs.defaultSpec <= 3)
-    end
-    eq(n, 27)
+---------------------------------------------------------------- data
+test("parser: weapon speed from the right-hand text", function()
+    local s = NS.Parser.Parse({ "Axe", "Two-Hand  Axe", "Speed 3.80", "(60.5 damage per second)" })
+    near(s.speed, 3.8); near(s.wdps, 60.5)
+    eq(NS.Parser.Parse({ "Hache", "Vitesse 3,60" }).speed, 3.6)
 end)
 
-test("presets: Retribution matches the web page", function()
-    local w = NS.PRESETS.PALADIN[3].weights
-    local expect = { str = { 10, 0.3, 0 }, agi = { 3.5, 4, 0 }, sta = { 0, 10, 0 }, int = { 1, 0, 6 },
-        spi = { 0, 0, 4 }, ap = { 5, 0, 0 }, hit = { 70, 0, 0 }, mp5 = { 0, 0, 25 }, spcrit = { 8, 0, 12 },
-        armor = { 0, 0.5, 0 }, hp5 = { 0, 3, 6 }, spboth = { 2.5, 0, 1.5 } }
-    for id, e in pairs(expect) do for i = 1, 3 do eq(w[id][i], e[i], id .. "[" .. i .. "]") end end
-    eq(NS.PRESETS.WARRIOR[1].weights.int, nil, "warriors get no mana stats")
+test("weights: Retribution DPS table only, known stats", function()
+    eq(NS.PRESETS, nil, "the other classes are gone")
+    for id, w in pairs(NS.RET.weights) do
+        assert(NS.STAT_BY_ID[id], "unknown stat " .. id); eq(type(w), "number", id)
+    end
+    eq(NS.RET.weights.sta, nil, "DPS only: no Defense or Sustain")
+end)
+
+test("parser: spell tooltips (damage, weapon %, cooldown), English and French", function()
+    local h = NS.Parser.Spell(BY_ID[24239])
+    near(h.base, 332); near(h.cd, 6); eq(h.weapon, nil)
+    local j = NS.Parser.Spell(BY_ID[20920])
+    near(j.base, 71, "normal Judgement, not the stunned one"); near(j.weapon, 0.7)
+    local hs = NS.Parser.Spell(BY_ID[900008])
+    near(hs.base, 40); near(hs.weapon, 0.5); near(hs.cd, 10)
+    local fr = NS.Parser.Spell({ "Marteau de courroux", "Recharge 6 sec.",
+        "Lance un marteau qui inflige 316 à 348 points de dégâts du Sacré." })
+    near(fr.base, 332); near(fr.cd, 6)
+    local frj = NS.Parser.Spell({ "Libérer l'énergie de ce sceau pour un jugement inflige 68,5 à 73,5 points de dégâts." })
+    near(frj.base, 71)
+end)
+
+---------------------------------------------------------------- model
+local M = NS.Model
+local function state(over)
+    local st = M.DefaultState()
+    st.talents = { vengeance = 3, champion = 5, sacredArbiter = 1, holyStrike = 1 }
+    for k, v in pairs(over or {}) do st[k] = v end
+    return st
+end
+
+test("model: Vengeance stacks, exact chain", function()
+    eq(M.VengeanceStacks(0, 15), 0); eq(M.VengeanceStacks(1, 15), 5)
+    -- one event per window: every non-crit drops the buff
+    -- p = 0.5, n = 1: stays at s with prob 1/2 per step -> simple check against a simulation
+    local a, b, c = M.VengeanceStacks(0.1, 15), M.VengeanceStacks(0.2, 15), M.VengeanceStacks(0.3, 15)
+    assert(a < b and b < c and c < 5, "more crit, more stacks")
+    assert((b - a) > (c - b), "diminishing returns")
+    -- Monte Carlo cross-check
+    math.randomseed(7)
+    local stacks, gap, sum, N = 0, 0, 0, 200000
+    for _ = 1, N do
+        sum = sum + stacks
+        if math.random() < 0.2 then stacks, gap = math.min(5, stacks + 1), 0
+        else gap = gap + 1; if gap >= 15 then stacks, gap = 0, 0 end end
+    end
+    assert(math.abs(sum / N - b) < 0.05, "sim " .. sum / N .. " vs " .. b)
+end)
+
+test("model: hit is worth nothing past the cap", function()
+    assert(M.Weights(state({ hit = 5 })).hit > 50)
+    near(M.Weights(state({ hit = 9 })).hit, 0)
+    near(M.Weights(state({ hit = 12 })).hit, 0)
+    local sh = M.Weights(state({ spellhit = 16 }))
+    near(sh.spellhit, 0)
+end)
+
+test("model: crit loses value as Vengeance saturates; no Vengeance, flatter", function()
+    local lo, hi = M.Weights(state({ crit = 10 })).crit, M.Weights(state({ crit = 30 })).crit
+    assert(lo > hi * 1.5, lo .. " vs " .. hi)
+    local nv = state({ crit = 10 }); nv.talents = { vengeance = 0, champion = 5, sacredArbiter = 1, holyStrike = 1 }
+    assert(M.Weights(nv).crit < lo)
+end)
+
+test("model: Champion of the Light turns Intellect into spell damage", function()
+    local w5 = M.Weights(state())
+    local s0 = state(); s0.talents = { vengeance = 3, champion = 0, sacredArbiter = 1, holyStrike = 1 }
+    local w0 = M.Weights(s0)
+    assert(math.abs((w5.int - w0.int) - 0.6 * w5.spdmg) < 0.01, "60% of Int as spell damage")
+    near(w5.str, 10, "1 Str = 2 AP = 10 pts"); near(w5.ap, 5); near(w5.wdps, 70, "1 weapon DPS = 14 AP")
+end)
+
+test("model: Holy Strike on cooldown, Sacred Arbiter +20%", function()
+    local st = state()
+    local _, a = M.Dps(st)
+    st.talents = { vengeance = 3, champion = 5, sacredArbiter = 0, holyStrike = 1 }
+    local _, b = M.Dps(st)
+    near(a.holyStrike, b.holyStrike * 1.2)
+    st.talents.holyStrike = 0
+    local _, c = M.Dps(st)
+    eq(c.holyStrike, 0)
+    -- it's a melee strike: hit counts for it, spell hit doesn't
+    local s1 = state({ hit = 5 })
+    local _, x = M.Dps(s1); local _, y = M.Dps(M.Apply(s1, { hit = 1 }))
+    assert(y.holyStrike > x.holyStrike)
+end)
+
+test("model: Hammer of Wrath only from level 44 and when known", function()
+    local _, a = M.Dps(state({ level = 60, target = 63 }))
+    assert(a.how > 0)
+    local _, b = M.Dps(state({ level = 43, target = 46 }))
+    eq(b.how, 0, "not learned yet")
+    local st = state(); st.spells = { how = { known = false } }
+    local _, c = M.Dps(st)
+    eq(c.how, 0, "not in the spellbook")
+    st.spells = { how = { known = true, base = 332, cd = 6 } }
+    local _, d = M.Dps(st)
+    near(d.how, a.how * (332 + 0.429 * st.sp) / (370 + 0.429 * st.sp), "tooltip damage used")
+end)
+
+test("model: spell numbers from tooltips replace the constants", function()
+    local st = state()
+    local _, a = M.Dps(st)
+    st.spells = { soc = { base = 142 } }
+    local _, b = M.Dps(st)
+    assert(b.joc > a.joc)
+    st.spells = { holyStrike = { known = true, weapon = 0.25, cd = 10 } }
+    local _, c = M.Dps(st)
+    assert(c.holyStrike < a.holyStrike)
+end)
+
+test("model: swap delta is exact across the hit cap", function()
+    local st = state({ hit = 8 })
+    -- +3% hit only gives 1% before the cap
+    local d = M.Delta(st, {}, { hit = 3 })
+    near(d, M.Delta(st, {}, { hit = 1 }))
+    -- a slower weapon with the same DPS is better (Seal of Command scales with swing damage)
+    assert(M.Delta(st, { wdps = 60, speed = 3.6 }, { wdps = 60, speed = 3.9 }) > 0)
 end)
 
 ---------------------------------------------------------------- scoring
-test("scoring: verdicts", function()
-    local w = NS.PRESETS.PALADIN[3].weights
-    local prio = { 100, 25, 40 }
-    eq(NS.Scoring.Compare({ str = 10 }, { str = 20 }, w, prio).verdict, "upgrade")
-    eq(NS.Scoring.Compare({ str = 20 }, { str = 10 }, w, prio).verdict, "downgrade")
-    eq(NS.Scoring.Compare({ str = 20 }, { str = 20 }, w, prio).verdict, "sidegrade")
-    local r = NS.Scoring.Compare({ sta = 20 }, { str = 20 }, w, prio)
-    eq(r.verdict, "tradeoff")
-    near(r.D[1], 200); near(r.D[2], 6 - 200)
-    near(r.total, 200 + (6 - 200) * 0.25)
-    eq(r.swings[1].id, "str")
-end)
-
-test("scoring: axis with 0 priority is ignored in the verdict", function()
-    local w = NS.PRESETS.PALADIN[3].weights
-    eq(NS.Scoring.Compare({ sta = 20 }, { str = 20 }, w, { 100, 0, 40 }).verdict, "upgrade")
+test("scoring: verdicts on DPS only", function()
+    local w = NS.RET.weights
+    eq(NS.Scoring.Compare({ str = 10 }, { str = 20 }, w).verdict, "upgrade")
+    eq(NS.Scoring.Compare({ str = 20 }, { str = 10 }, w).verdict, "downgrade")
+    eq(NS.Scoring.Compare({ str = 20 }, { str = 20 }, w).verdict, "sidegrade")
+    local r = NS.Scoring.Compare({ sta = 40 }, { str = 20 }, w)
+    eq(r.verdict, "upgrade", "Stamina no longer counts")
+    near(r.D, 200); eq(r.swings[1].id, "str"); eq(#r.swings, 1)
+    near(NS.Scoring.Compare({}, { hit = 2 }, w, 33).D, 33, "model delta overrides the linear one")
 end)
 
 ---------------------------------------------------------------- profile
-test("profile: spec from talent points, override, reset", function()
+test("profile: reads the sheet and talents, live weights", function()
     local p = NS.Profile.Get()
-    eq(p.classFile, "PALADIN"); eq(p.specIndex, 3); eq(p.specName, "Retribution"); eq(p.source, "talents")
-    NS.Commands.Run("spec 2"); p = NS.Profile.Get()
-    eq(p.specIndex, 2); eq(p.role, "tank"); eq(p.axes[1], "Threat"); eq(p.source, "manual")
-    NS.Commands.Run("spec auto")
-    PLAYER.tabs = { 0, 0, 0 }; NS.Profile.Invalidate()
-    eq(NS.Profile.Get().source, "default")
-    PLAYER.tabs = { 5, 11, 31 }; NS.Profile.Invalidate()
+    eq(p.specName, "Retribution")
+    eq(p.state.ap, 1200); eq(p.state.crit, 20); eq(p.state.hit, 5); eq(p.state.sp, 80); eq(p.state.target, 63)
+    eq(p.state.talents.vengeance, 3); eq(p.state.talents.champion, 5); eq(p.state.talents.sacredArbiter, 1)
+    eq(p.state.talents.holyStrike, 1)
+    eq(#p.estimated, 0, table.concat(p.estimated, ","))
+    near(p.state.wdps, 60, "weapon DPS backed out of the sheet damage")
+    near(p.state.spells.how.base, 332, "Hammer of Wrath read from its tooltip")
+    near(p.state.spells.soc.base, 71); near(p.state.spells.holyStrike.base, 40)
+    assert(p.parts.how > 0)
+    local saved = SPELLBOOK["Hammer of Wrath"]
+    SPELLBOOK["Hammer of Wrath"] = nil; NS.Profile.Invalidate()
+    eq(NS.Profile.Get().parts.how, 0, "not in the spellbook")
+    SPELLBOOK["Hammer of Wrath"] = saved
+    SHEET.level = 43; NS.Profile.Invalidate()
+    eq(NS.Profile.Get().parts.how, 0, "below 44")
+    SHEET.level = 60; NS.Profile.Invalidate()
+    NS.Commands.Run("spells")
+    near(p.weights.str, 10); assert(p.weights.hit > 50); eq(p.weights.sta, nil)
+    SHEET.hit = 10; NS.Profile.Invalidate()
+    near(NS.Profile.Get().weights.hit, 0, "capped")
+    SHEET.hit = 5; NS.Profile.Invalidate()
 end)
 
-test("profile: unreliable tab info falls back to counting talent ranks", function()
-    -- id-first tab info whose pointsSpent slot isn't pointsSpent (e.g. a file id):
-    -- Holy used to win with a huge bogus count.
-    local oldTab = GetTalentTabInfo
-    GetTalentTabInfo = function(i) return 380 + i, TAB_NAMES[i], "desc", 135920, ({ 999999, 0.5, -3 })[i] end
-    NS.Profile.Invalidate()
-    eq(NS.Profile.Get().source, "default", "garbage counts are ignored")
-    -- Ranks counted talent by talent: 0 / 0 / 27, like the screenshot.
-    local RANKS = { {}, {}, { 5, 5, 3, 3, 2, 5, 1, 3 } }
-    function GetNumTalents(tab) return math.max(#RANKS[tab], 4) end
-    function GetTalentInfo(tab, i) return "T", "icon", 1, 1, RANKS[tab][i] or 0, 5 end
+test("profile: other classes get nothing", function()
+    PLAYER.class = "WARRIOR"; NS.Profile.Invalidate()
+    eq(NS.Profile.Get(), nil)
+    NS.Commands.Run("status")
+    assert(printed[#printed]:find("Paladins", 1, true))
+    PLAYER.class = "PALADIN"; NS.Profile.Invalidate()
+end)
+
+test("profile: missing API falls back to defaults, talents can be set by hand", function()
+    local old = GetCritChance
+    GetCritChance = nil
+    local oldTI = GetTalentInfo
+    GetTalentInfo = nil
     NS.Profile.Invalidate()
     local p = NS.Profile.Get()
-    eq(p.specIndex, 3); eq(p.specName, "Retribution"); eq(p.source, "talents"); eq(p.talentPoints[3], 27)
-    GetTalentTabInfo, GetNumTalents, GetTalentInfo = oldTab, nil, nil
+    eq(p.state.crit, 20, "last good reading is kept")
+    eq(p.state.talents.vengeance, 0)
+    NS.Commands.Run("set vengeance 3"); NS.Commands.Run("set target 62")
+    p = NS.Profile.Get()
+    eq(p.state.talents.vengeance, 3); eq(p.state.target, 62)
+    NS.Commands.Run("set vengeance auto"); NS.Commands.Run("set target auto")
+    GetCritChance, GetTalentInfo = old, oldTI
     NS.Profile.Invalidate()
 end)
 
-test("profile: C_SpecializationInfo-only client (no talent globals)", function()
-    local oldTab, oldTabs = GetTalentTabInfo, GetNumTalentTabs
-    GetTalentTabInfo, GetNumTalentTabs = nil, nil
-    local RANKS = { { 0, 0 }, { 0, 0, 0 }, { 5, 5, 3, 3, 2, 5, 1, 3 } }
-    C_SpecializationInfo = {
-        GetSpecialization = function() return 1 end,   -- what Forever answers whatever the talents
-        GetNumSpecializations = function() return 3 end,
-        GetSpecializationInfo = function(i) return 380 + i, TAB_NAMES[i], "d", 135920, "DAMAGER", 1, 0 end,
-        GetTalentInfo = function(q)
-            local r = RANKS[q.specializationIndex][q.talentIndex]
-            if r then return { name = "T", rank = r, maxRank = 5 } end
-        end,
-    }
+test("profile: unknown spellbook (other language) falls back to the constants", function()
+    local old = C_Spell
+    C_Spell = nil
     NS.Profile.Invalidate()
     local p = NS.Profile.Get()
-    eq(p.specIndex, 3); eq(p.specName, "Retribution"); eq(p.source, "talents"); eq(p.talentPoints[3], 27)
-    NS.Commands.Run("talents")   -- the dump must not error
-    -- No talent info at all: GetSpecialization is only a labelled guess.
-    C_SpecializationInfo.GetSpecializationInfo, C_SpecializationInfo.GetTalentInfo = nil, nil
+    eq(p.state.spells, nil); assert(p.parts.how > 0, "level rule only")
+    C_Spell = old
     NS.Profile.Invalidate()
-    eq(NS.Profile.Get().source, "client")
-    C_SpecializationInfo = nil
-    GetTalentTabInfo, GetNumTalentTabs = oldTab, oldTabs
+end)
+
+test("profile: secret values in combat keep the last reading", function()
+    issecretvalue = function(v) return v == 1200 - 200 end
+    NS.Profile.Invalidate()
+    eq(NS.Profile.Get().state.ap, 1200)
+    issecretvalue = nil
     NS.Profile.Invalidate()
 end)
 
@@ -248,22 +400,36 @@ test("tooltip text is plain ASCII (the game font shows boxes otherwise)", functi
     assert(not src:find("[\128-\255]"), "non-ASCII character in Tooltip.lua")
 end)
 
-test("commands: weight / prio / export / import round trip", function()
-    NS.Commands.Run("weight hit 0 0 0")
-    NS.Commands.Run("prio 100 50 10")
+test("commands: pin / unpin / export / import round trip", function()
+    NS.Commands.Run("weight hit 0")
     local p = NS.Profile.Get()
-    eq(p.weights.hit[1], 0); eq(p.prio[2], 50); assert(p.overridden)
+    eq(p.weights.hit, 0); assert(p.overridden); assert(p.pinned.hit)
     local s = NS.Commands.Export(p)
-    assert(s:find("str=10/0.3/0", 1, true), s)
-    assert(s:find("|prio=100/50/10", 1, true), s)
-    NS.Commands.Run("reset")
-    eq(NS.Profile.Get().weights.hit[1], 70)
-    NS.Commands.Run("import " .. s)
+    assert(s:find("hit=0", 1, true) and s:find("str=10", 1, true), s)
+    assert(not s:find("/", 1, true) and not s:find("prio", 1, true), s)
+    NS.Commands.Run("unpin hit")
+    assert(NS.Profile.Get().weights.hit > 50)
+    NS.Commands.Run("import hit=0;crit=50")
     p = NS.Profile.Get()
-    eq(p.weights.hit[1], 0); eq(p.prio[2], 50)
+    eq(p.weights.hit, 0); eq(p.weights.crit, 50)
+    NS.Commands.Run("reset")
+    NS.Commands.Run("import hit=0/0/0|prio=100/50/10")   -- old 3-axis string: DPS number kept
+    eq(NS.Profile.Get().weights.hit, 0)
     NS.Commands.Run("reset")
     local w, err = NS.Commands.ParseImport("garbage")
     eq(w, nil); eq(err, "nothing recognised")
+    NS.Commands.Run("weights"); NS.Commands.Run("talents"); NS.Commands.Run("status")
+end)
+
+test("saved variables from 0.1.x are migrated", function()
+    ForeverGearScaleDB = { weights = { ["PALADIN:3"] = { hit = { 0, 0, 0 }, crit = { 50, 0, 0 } }, ["WARRIOR:2"] = {} },
+        prio = { ["PALADIN:3"] = { 100, 10, 10 } }, specOverride = { PALADIN = 3 } }
+    events.handler(events.frame, "ADDON_LOADED", "ForeverGearScale")
+    eq(NS.db.pins.hit, 0); eq(NS.db.pins.crit, 50)
+    eq(NS.db.prio, nil); eq(NS.db.weights, nil); eq(NS.db.specOverride, nil)
+    NS.Profile.Invalidate()
+    eq(NS.Profile.Get().weights.crit, 50)
+    NS.Commands.Run("reset")
 end)
 
 ---------------------------------------------------------------- tooltip flow
@@ -276,14 +442,18 @@ test("tooltip: upgrade lines added", function()
     local out = hover(newHelm)
     assert(out:find("Gear Scale", 1, true), out)
     assert(out:find("Retribution", 1, true), out)
-    assert(out:find("Upgrade", 1, true) or out:find("Trade%-off"), out)
-    assert(out:find("DPS", 1, true) and out:find("Defense", 1, true) and out:find("Sustain", 1, true), out)
-    assert(out:find("+150", 1, true), "DPS delta 8 str*10 + 1 hit*70 = 150\n" .. out)
+    assert(out:find("Upgrade", 1, true), out)
+    assert(out:find("DPS score", 1, true), out)
+    assert(not out:find("Defense", 1, true) and not out:find("Sustain", 1, true), out)
+    assert(out:find("%+%d+%.%d DPS %(%+%d+%.%d%%%)"), "real DPS change shown\n" .. out)
+    local d = (NS.Profile.Get().dpsDelta(NS.ItemStats.Get(equippedHelm), NS.ItemStats.Get(newHelm)))
+    assert(d > 80, d)   -- 8 Str (80 pts) + 1% hit under the cap
+    assert(out:find("+" .. math.floor(d + 0.5), 1, true), "DPS delta from the model\n" .. out)
 end)
 
 test("tooltip: hovering the equipped item shows its own scores", function()
     local out = hover(equippedHelm)
-    assert(out:find("Equipped", 1, true), out)
+    assert(out:find("Equipped", 1, true) and out:find("Worth about", 1, true), out)
 end)
 
 test("tooltip: shift shows stat swings and unscored effects", function()
@@ -309,6 +479,8 @@ test("tooltip: two-hander compares against main + off hand", function()
     local cand = item(3003, "INVTYPE_2HWEAPON", { "Big Axe", "Two-Hand  Axe", "(60.0 damage per second)", "+25 Strength" })
     local out = hover(cand)
     assert(out:find("Main + Off hand", 1, true), out)
+    NS.Profile.Invalidate()
+    near(NS.Profile.Get().state.wdps, 40, "weapon DPS read from the main hand tooltip")
 end)
 
 test("tooltip: empty slot is a pure upgrade, non-gear is ignored", function()

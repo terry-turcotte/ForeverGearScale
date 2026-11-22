@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: Forever Gear Scale
-## Notes: Scores gear on 3 axes (DPS / Defense / Sustain) for your class and spec, and shows the difference against what you wear, right in the item tooltip.
+## Notes: Retribution Paladin DPS calculator: live stat weights from your character sheet and talents (hit cap, crit and Vengeance, Champion of the Light), and the DPS change of every item right in its tooltip.
 ## Author: Les Patriotes d'Azeroth
-## Version: 0.1.0-beta.4
+## Version: 0.2.0-beta.1
 ## X-License: MIT
 ## IconTexture: Interface\Icons\INV_Misc_Gear_01
 ## SavedVariables: ForeverGearScaleDB
@@ -12,6 +12,8 @@ Data\Stats.lua
 Data\Presets.lua
 Parser.lua
 ItemStats.lua
+Model.lua
+Character.lua
 Scoring.lua
 Profile.lua
 Tooltip.lua

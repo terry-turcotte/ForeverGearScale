@@ -3,18 +3,18 @@
 # Forever Gear Scale
 
 A **WoW Forever** addon that answers "is this piece better for me?" right in the item tooltip.
-It works out your **class and spec**, loads the **stat weights for that spec**, and scores the item you hover against what you wear on **three axes**: **DPS**, **Defense** and **Sustain**.
+It is built for **Retribution Paladins only**. It reads your **character sheet and talents**, runs a small Ret damage model on them, and tells you how much **DPS** the item you hover would gain or lose against what you wear. It is a DPS calculator only: Stamina, armor, mana and other defensive or sustain stats are not scored.
 
-It is the in-game version of the *Gear Scale* web page (Ret Paladin), with the same stat ids, scale and verdict rules, extended to all 9 classes × 3 specs.
+The DPS weights are **live**: they are worked out from your current stats, so they change as you gear. Hit is worth nothing once you are at the cap, crit is worth less once Vengeance never drops, and Intellect is worth more with Champion of the Light. Swaps are scored on the full model, not with linear weights, so a piece that takes you over the hit cap only gets credit for the hit that still counts.
+
+It is the in-game version of the *Gear Scale* web page (Ret Paladin), with the same stat ids, scale and verdict rules. On other classes the addon does nothing.
 
 ```
 Lionheart Helm
 ...
 Gear Scale · Retribution                Upgrade
-  DPS      1 850 > 2 000                   +150
-  Defense    560 > 650                      +90
-  Sustain      0 > 0                          0
-  Weighted total                           +173
+  DPS score  100 > 320                     +220
+  Model                       +5.1 DPS (+1.8%)
   Shift: biggest stat swings
 ```
 
@@ -28,14 +28,19 @@ Gear Scale · Retribution                Upgrade
 
 | Command | What it does |
 |---|---|
-| `/fgs status` | Class, spec (and whether it came from talents or was set by hand), axis priority |
-| `/fgs talents` | Dumps what the talent API returns, plus the points read per tree: paste it in a bug report if the spec is wrong |
-| `/fgs weights` | Lists the weights in use (points per 1 point of stat, per axis) |
-| `/fgs spec auto\|1\|2\|3` | Forces a spec (talent tab order), or back to automatic |
-| `/fgs prio 100 25 40` | Axis priority in %. Raise Defense for leveling or solo play, Sustain for long fights |
-| `/fgs weight hit 0 0 0` | Changes one stat for this spec (e.g. hit once you are hit-capped) |
-| `/fgs reset` | Back to the preset for this spec |
-| `/fgs export` / `/fgs import <string>` | Copy weights as text: `str=10/0.3/0;agi=3.5/4/0;…\|prio=100/25/40` |
+| `/fgs status` | What was read from your character (AP, crit, hit, weapon, spell damage, talents), the model's DPS split, average Vengeance stacks, and anything it had to guess |
+| `/fgs weights` | DPS points per 1 point of each stat (1 AP = 5), live from your stats; `*` marks the ones you pinned |
+| `/fgs weight <stat> <points>` | Pins one stat's weight by hand (e.g. `/fgs weight crit 120`). It stops following the model |
+| `/fgs unpin <stat>` | That stat follows the model again |
+| `/fgs set target 63` | Target level (default: your level + 3, a raid boss) |
+| `/fgs set judge 9` | Seconds between Judgements of Command (default 9) |
+| `/fgs set execute 0.2` | Share of the fight spent under 20% health, where Hammer of Wrath is used (default 0.2) |
+| `/fgs set vengeance\|champion\|arbiter <rank\|auto>` | Talent rank (Vengeance, Champion of the Light, Sacred Arbiter), if the client can't read it (or to test a build) |
+| `/fgs set holystrike 0\|1` | Takes Holy Strike out of the rotation, or puts it back (default: in) |
+| `/fgs spells` | The Hammer of Wrath, Holy Strike and Seal of Command numbers read from your spellbook (damage, weapon %, cooldown), with the tooltip text: paste it in a bug report if a number looks wrong |
+| `/fgs talents` | Dumps what the talent API returns and the ranks read: paste it in a bug report |
+| `/fgs reset` | Unpins everything; fight and talent settings back to default |
+| `/fgs export` / `/fgs import <string>` | Copy weights as text: `str=10;agi=8.4;crit=166;…`. Imported stats are pinned. Old 3-axis strings (`str=10/0.3/0;…\|prio=…`) still import; only the DPS number is kept |
 | `/fgs on` / `/fgs off` | Shows or hides the tooltip lines |
 
 Hold **Shift** while hovering to see the 4 stats that move the score most, and how many special effects (on-use, procs) were not scored.
@@ -47,15 +52,16 @@ Hold **Shift** while hovering to see the 4 stats that move the score most, and h
 | # | Step | Status |
 |---|---|---|
 | 1 | Check the Forever addon API: Interface **16001**, modern `C_*` API with Midnight-era restrictions | ✅ |
-| 2 | Stat vocabulary and **preset weight database** for 9 classes × 3 specs, Ret matching the web page | ✅ |
+| 2 | Stat vocabulary and **Ret weight table** matching the web page (other classes removed in 0.2) | ✅ |
 | 3 | **Tooltip parser** (EN + FR) from item tooltip text to stat values | ✅ |
-| 4 | **Scoring engine**: 3 axes, deltas, axis priority, verdict (same rules as the web page) | ✅ |
-| 5 | **Class/spec detection** from talent points, with manual override | ✅ |
+| 4 | **Scoring engine**: DPS score, delta, verdict. Defense and Sustain axes removed in 0.2 | ✅ |
+| 5 | ~~Class/spec detection~~ removed in 0.2: Paladin only. Replaced by **reading the character sheet and talents** | ✅ |
 | 6 | **Tooltip hook**: find the equipped item(s) in the slot, compare, write the result | ✅ |
-| 7 | Slash commands: tune weights and priority, import/export | ✅ |
+| 7 | Slash commands: pin weights, fight and talent settings, import/export | ✅ |
 | 8 | Offline tests with a stubbed game API + CI | ✅ |
 | 9 | **In-game check on Forever**: verify API names, tooltip text and talent info on the live client | ⏳ needs a game client |
-| 10 | Tune the presets once Forever's reworked talents settle (sims, logs, guild feedback) | 🔜 |
+| 10 | **Live DPS weights** from a Ret model (Seal of Command, Holy Strike, Judgement, Hammer of Wrath, Vengeance, Champion of the Light) | ✅ |
+| 10b | Check the model's spell numbers (Judgement of Command, Holy Strike, Hammer of Wrath) against Forever logs; they are read from spell tooltips since 0.2 | 🔜 |
 | 11 | Settings panel (sliders) instead of slash commands only | 🔜 |
 | 12 | French UI strings (the parser already reads French tooltips) | 🔜 |
 | 13 | Own repository | ✅ |
@@ -70,7 +76,7 @@ sequenceDiagram
     participant API as Blizzard API (WoW Forever client)
     participant Hook as Tooltip.lua (event)
     participant Stats as ItemStats.lua + Parser.lua
-    participant Prof as Profile.lua + Data/Presets.lua (local db)
+    participant Prof as Profile.lua + Character.lua + Model.lua
     participant Score as Scoring.lua
 
     API->>Hook: tooltip shows an item (TooltipDataProcessor post-call)
@@ -78,11 +84,11 @@ sequenceDiagram
     Hook->>Stats: input: stats from both gears
     Stats->>API: C_TooltipInfo.GetHyperlink(link) → tooltip lines
     Stats-->>Hook: { str = 18, hit = 1, ... } for each side
-    Hook->>Prof: pull: current class + preset class weights
-    Prof->>API: UnitClass, GetTalentTabInfo (points per tree)
-    Prof-->>Hook: spec, axes, weights (+ your overrides), priority
-    Hook->>Score: compare(equipped, candidate, weights, priority)
-    Score-->>Hook: deltas per axis, weighted total, verdict, top swings
+    Hook->>Prof: pull: character + weights
+    Prof->>API: UnitAttackPower, GetCritChance, GetHitModifier, GetSpellBonusDamage, GetTalentInfo...
+    Prof-->>Hook: live DPS weights, model DPS change for the swap, your pins
+    Hook->>Score: compare(equipped, candidate, weights, model DPS change)
+    Score-->>Hook: DPS score both sides, delta, verdict, top swings
     Hook->>API: pull UI to put the response (tooltip:AddDoubleLine)
 ```
 
@@ -93,27 +99,46 @@ sequenceDiagram
 | `ForeverGearScale.toc`, `ForeverGearScale_Camelot.toc` | Manifest, `## Interface: 16001`. Same file twice, so the client finds it with either suffix rule | — |
 | `Compat.lua` | Wraps the Blizzard calls, with fallbacks to older globals: `C_Item.GetItemInfoInstant`, `C_TooltipInfo.GetHyperlink` (or a hidden scan tooltip), `TooltipUtil.GetDisplayedItem`, `issecretvalue` | yes, only here |
 | `Data/Stats.lua` | Stat ids and names, the same as the web page | no |
-| `Data/Presets.lua` | **Local weight database**: base defense + mana blocks, role blocks (melee, caster, healer, tank), per spec tweaks, then built into `NS.PRESETS[class][spec]` | no |
+| `Data/Presets.lua` | **Fallback Ret DPS weights** (`NS.RET`), the web page's numbers, used only for stats the model doesn't cover | no |
 | `Parser.lua` | Tooltip text to stats, English and French. Skips set bonuses, flavor text, *Use:* and *Chance on hit:* (counted as "not scored") | no |
 | `ItemStats.lua` | Link to stats, with a cache. Removes enchants and gems so the equipped piece isn't favoured by its enchant | through Compat |
-| `Scoring.lua` | Points per axis, deltas, priority-weighted total, verdict (*Upgrade / Downgrade / Trade-off / Sidegrade*), biggest swings | no |
-| `Profile.lua` | Class from `UnitClass`, spec from talent points (falls back to `GetSpecialization`, then a default), merged with saved overrides | yes |
+| `Model.lua` | **Ret damage model**: attack tables, Seal of Command, Holy Strike, Judgement, Hammer of Wrath, Vengeance stacks. Gives live weights and the exact DPS change of a swap | no |
+| `Character.lua` | Reads the character sheet and talents (by name, EN + FR) into a model state. Secret or missing values fall back to the last good reading, then defaults | yes |
+| `Scoring.lua` | DPS score, delta, verdict (*Upgrade / Downgrade / Sidegrade*), biggest swings | no |
+| `Profile.lua` | Paladin check, then model weights + the Ret table + your pinned stats | yes |
 | `Tooltip.lua` | Event hook + rendering. Handles rings and trinkets (best of 2 slots), two-handers (vs main + off hand), empty slots, your own equipped item | yes |
 | `Commands.lua` | `/fgs` and import/export | yes |
-| `Core.lua` | SavedVariables (`ForeverGearScaleDB`), event wiring (login, talent changes, Shift key) | yes |
+| `Core.lua` | SavedVariables (`ForeverGearScaleDB`, migrated from 0.1), event wiring (gear, stats, talent changes, Shift key) | yes |
 
-Logic files (`Parser`, `Scoring`, `Data/*`) never touch the game API, so they are tested offline. Every Blizzard call goes through `Compat.lua` or is guarded with `pcall`. If Forever renames something, it fails quietly instead of throwing Lua errors.
+Logic files (`Parser`, `Model`, `Scoring`, `Data/*`) never touch the game API, so they are tested offline. Every Blizzard call goes through `Compat.lua` or is guarded with `pcall`. If Forever renames something, it fails quietly instead of throwing Lua errors.
 
 ### Scoring rules
 
-- **Score** for each axis = Σ (stat value × weight on that axis).
-- **Delta** = candidate − equipped. An axis is "even" when it moves by less than 1% (and less than 3 points).
-- **Verdict** uses only the axes whose priority is above 0: gains only → *Upgrade*, losses only → *Downgrade*, both → *Trade-off*, neither → *Sidegrade*.
-- **Weighted total** = Σ delta × priority / 100. Rings and trinkets are compared with both equipped pieces, and the slot with the best total is shown ("vs Ring 2").
+- **DPS score** of an item = Σ (stat value × weight), with the live weights.
+- **Delta** comes from the model: DPS with the new piece (your sheet − the equipped piece + the candidate) minus DPS now. The tooltip shows it as points (1 AP = 5 pts) and as real DPS with the % of your current DPS. Pinned stats use their weight instead.
+- **Verdict**: *Upgrade* or *Downgrade* when the delta is more than 1% of the score (and at least 3 points), otherwise *Sidegrade*.
+- Rings and trinkets are compared with both equipped pieces, and the slot with the best delta is shown ("vs Ring 2"). Hovering what you wear shows what it is worth over an empty slot.
 
 ### Scale (weights)
 
-Same anchors as the web page: **1 Attack Power = 5 pts** (casters: 1 spell power = 5 pts), **Defense 1 pt ≈ 1 effective HP** (1 Stamina = 10 pts), **Sustain 1 pt ≈ 2.5 mana**. The presets start from level-60 vanilla rules. Forever reworked every talent tree, so treat them as starting points and adjust with `/fgs weight` or `/fgs import`.
+Same anchor as the web page: **1 Attack Power = 5 pts**.
+
+### The Ret model
+
+Each DPS weight is 5 × (DPS gained by 1 point of the stat) ÷ (DPS gained by 1 AP), measured at your current stats. The model covers:
+
+- **Melee attack table** against the target level (default your level + 3): miss (9% cap vs a boss), dodge, glancing blows, crit suppression, weapon skill.
+- **White swings** with your weapon DPS and speed, plus Attack Power.
+- **Seal of Command**: 7 procs per minute, 70% weapon damage + 20% of spell damage. Slower weapons hit harder per proc, so weapon speed counts on weapon swaps.
+- **Holy Strike** on cooldown (10 sec): a melee strike (melee hit and crit) for 50% weapon damage + 42.9% of spell damage as Holy, +20% with **Sacred Arbiter**.
+- **Judgement of Command** every 9 sec (spell hit, melee crit): the normal damage, not the "if stunned" one, since bosses are never stunned.
+- **Hammer of Wrath** on cooldown (6 sec) in the execute phase (melee hit and crit), counted as instant (Champion of the Light 5/5). Only from **level 44**, when Forever teaches it, and only if it is in your spellbook.
+- **Spell numbers are read from your own spell tooltips**: Hammer of Wrath's damage and cooldown, Holy Strike's weapon %, bonus damage and cooldown, and the Judgement of Command damage from Seal of Command (English and French clients). This follows your rank and any Forever change. If none of the spells can be found (another client language, or no spell API), the built-in numbers below are used.
+- **Vengeance**: +1% damage per rank per stack, 5 stacks, 30 sec. Every non-periodic hit above can crit and refresh it. The average stack count is solved exactly from your crit chance and hit rate, so crit is worth a lot at low crit and little once the buff never drops.
+- **Champion of the Light**: 12% of Intellect per rank as spell damage, so Intellect picks up spell damage's value.
+- Strength = 2 AP, 20 Agility = 1% crit, 54 Intellect = 1% spell crit.
+
+Built-in spell values (`Model.CONST`, used only when the tooltips can't be read) are vanilla level-60 or pre-launch guide numbers. If a client's tooltip numbers already include your spell damage, spell damage would be counted twice: compare `/fgs spells` with a tooltip seen without gear. Forever reworked talents and some spells, so check `/fgs status` against your logs and adjust there. Not modelled: mana (running out of it), on-use and proc effects, set bonuses, % stat buffs such as Blessing of Kings.
 
 ### Forever API notes (checked November 2026)
 
@@ -129,7 +154,7 @@ Same anchors as the web page: **1 Attack Power = 5 pts** (casters: 1 spell power
 lua5.1 tests/run.lua
 ```
 
-`tests/run.lua` stubs the WoW API (items, equipped slots, talents, tooltips), loads every file in TOC order, and checks the parser (EN/FR), presets, scoring, spec detection, commands and the full tooltip flow (upgrade, equipped item, Shift details, rings, two-handers, empty slots). CI (GitHub Actions) runs it on every push and pull request.
+`tests/run.lua` stubs the WoW API (items, equipped slots, character sheet, talents, tooltips), loads every file in TOC order, and checks the parser (EN/FR, weapon speed), the model (Vengeance chain against a simulation, hit cap, crit falloff, Champion of the Light, weapon speed, Hammer of Wrath from level 44 and only when known), spell tooltip parsing (EN/FR), scoring, reading the character (missing API, secret values), commands, saved-variable migration and the full tooltip flow (upgrade, equipped item, Shift details, rings, two-handers, empty slots). CI (GitHub Actions) runs it on every push and pull request.
 
 ### Versions and release tags
 
@@ -162,7 +187,7 @@ This addon started in the guild website repo ([patriotesazeroth-web](https://git
 
 ## Logo
 
-`media/logo.svg` is the source of the logo, with PNG exports at 512, 256 and 64 px; use `logo-512.png` as the CurseForge project logo. It is original artwork: a balance scale in a cog, with three bars for the DPS, Defense and Sustain axes. The lettering is [Cinzel](https://github.com/NDISCOVER/Cinzel) (SIL Open Font License), converted to outlines. `media/make_logo.py` regenerates the SVG. The `media/` folder is not included in the release zip.
+`media/logo.svg` is the source of the logo, with PNG exports at 512, 256 and 64 px; use `logo-512.png` as the CurseForge project logo. It is original artwork: a balance scale in a cog, with three bars (from the 0.1 versions, which scored DPS, Defense and Sustain). The lettering is [Cinzel](https://github.com/NDISCOVER/Cinzel) (SIL Open Font License), converted to outlines. `media/make_logo.py` regenerates the SVG. The `media/` folder is not included in the release zip.
 
 In the game's AddOns list, both `.toc` files use a game icon (`## IconTexture: Interface\Icons\INV_Misc_Gear_01`), so no Blizzard file is copied into the addon. Clients without `IconTexture` support ignore the line.
 
