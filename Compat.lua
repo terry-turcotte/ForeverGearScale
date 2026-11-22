@@ -98,3 +98,41 @@ end
 function C.SafeRegister(frame, event)
     return pcall(frame.RegisterEvent, frame, event)
 end
+
+-- Every text of a spell's tooltip (left and right), or its description.
+function C.GetSpellLines(spellID)
+    local out = {}
+    if C_TooltipInfo and C_TooltipInfo.GetSpellByID then
+        local ok, data = pcall(C_TooltipInfo.GetSpellByID, spellID)
+        if ok and type(data) == "table" and data.lines then
+            for _, line in ipairs(data.lines) do
+                if line.leftText == nil and TooltipUtil and TooltipUtil.SurfaceArgs then
+                    pcall(TooltipUtil.SurfaceArgs, line)
+                end
+                for _, t in ipairs({ line.leftText, line.rightText }) do
+                    if type(t) == "string" and not C.IsSecret(t) then out[#out + 1] = cleanText(t) end
+                end
+            end
+        end
+    end
+    if #out == 0 then
+        local f = (C_Spell and C_Spell.GetSpellDescription) or GetSpellDescription
+        if f then
+            local ok, d = pcall(f, spellID)
+            if ok and type(d) == "string" and d ~= "" and not C.IsSecret(d) then out[1] = cleanText(d) end
+        end
+    end
+    return out
+end
+
+-- Spell id of a spell in your spellbook, by name; nil if you don't know it.
+function C.GetKnownSpellID(name)
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, name)
+        if ok and type(info) == "table" and info.spellID then return info.spellID end
+    end
+    if GetSpellInfo then
+        local r = { pcall(GetSpellInfo, name) }
+        if r[1] and r[2] then return r[8] end   -- name, rank, icon, castTime, minRange, maxRange, spellID
+    end
+end

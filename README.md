@@ -37,6 +37,7 @@ Gear Scale · Retribution                Upgrade
 | `/fgs set execute 0.2` | Share of the fight spent under 20% health, where Hammer of Wrath is used (default 0.2) |
 | `/fgs set vengeance\|champion\|arbiter <rank\|auto>` | Talent rank (Vengeance, Champion of the Light, Sacred Arbiter), if the client can't read it (or to test a build) |
 | `/fgs set holystrike 0\|1` | Takes Holy Strike out of the rotation, or puts it back (default: in) |
+| `/fgs spells` | The Hammer of Wrath, Holy Strike and Seal of Command numbers read from your spellbook (damage, weapon %, cooldown), with the tooltip text: paste it in a bug report if a number looks wrong |
 | `/fgs talents` | Dumps what the talent API returns and the ranks read: paste it in a bug report |
 | `/fgs reset` | Unpins everything; fight and talent settings back to default |
 | `/fgs export` / `/fgs import <string>` | Copy weights as text: `str=10;agi=8.4;crit=166;…`. Imported stats are pinned. Old 3-axis strings (`str=10/0.3/0;…\|prio=…`) still import; only the DPS number is kept |
@@ -60,7 +61,7 @@ Hold **Shift** while hovering to see the 4 stats that move the score most, and h
 | 8 | Offline tests with a stubbed game API + CI | ✅ |
 | 9 | **In-game check on Forever**: verify API names, tooltip text and talent info on the live client | ⏳ needs a game client |
 | 10 | **Live DPS weights** from a Ret model (Seal of Command, Holy Strike, Judgement, Hammer of Wrath, Vengeance, Champion of the Light) | ✅ |
-| 10b | Check the model's spell numbers (Judgement of Command, Holy Strike) against Forever logs and tune `Model.CONST` | 🔜 |
+| 10b | Check the model's spell numbers (Judgement of Command, Holy Strike, Hammer of Wrath) against Forever logs; they are read from spell tooltips since 0.2 | 🔜 |
 | 11 | Settings panel (sliders) instead of slash commands only | 🔜 |
 | 12 | French UI strings (the parser already reads French tooltips) | 🔜 |
 | 13 | Own repository | ✅ |
@@ -130,12 +131,14 @@ Each DPS weight is 5 × (DPS gained by 1 point of the stat) ÷ (DPS gained by 1 
 - **White swings** with your weapon DPS and speed, plus Attack Power.
 - **Seal of Command**: 7 procs per minute, 70% weapon damage + 20% of spell damage. Slower weapons hit harder per proc, so weapon speed counts on weapon swaps.
 - **Holy Strike** on cooldown (10 sec): a melee strike (melee hit and crit) for 50% weapon damage + 42.9% of spell damage as Holy, +20% with **Sacred Arbiter**.
-- **Judgement of Command** every 9 sec (spell hit, melee crit), **Hammer of Wrath** in the execute phase.
+- **Judgement of Command** every 9 sec (spell hit, melee crit): the normal damage, not the "if stunned" one, since bosses are never stunned.
+- **Hammer of Wrath** on cooldown (6 sec) in the execute phase (melee hit and crit), counted as instant (Champion of the Light 5/5). Only from **level 44**, when Forever teaches it, and only if it is in your spellbook.
+- **Spell numbers are read from your own spell tooltips**: Hammer of Wrath's damage and cooldown, Holy Strike's weapon %, bonus damage and cooldown, and the Judgement of Command damage from Seal of Command (English and French clients). This follows your rank and any Forever change. If none of the spells can be found (another client language, or no spell API), the built-in numbers below are used.
 - **Vengeance**: +1% damage per rank per stack, 5 stacks, 30 sec. Every non-periodic hit above can crit and refresh it. The average stack count is solved exactly from your crit chance and hit rate, so crit is worth a lot at low crit and little once the buff never drops.
 - **Champion of the Light**: 12% of Intellect per rank as spell damage, so Intellect picks up spell damage's value.
 - Strength = 2 AP, 20 Agility = 1% crit, 54 Intellect = 1% spell crit.
 
-Spell values are vanilla level-60 numbers (`Model.CONST`). Forever reworked talents and some spells, so check `/fgs status` against your logs and adjust there. Not modelled: mana (running out of it), on-use and proc effects, set bonuses, % stat buffs such as Blessing of Kings.
+Built-in spell values (`Model.CONST`, used only when the tooltips can't be read) are vanilla level-60 or pre-launch guide numbers. If a client's tooltip numbers already include your spell damage, spell damage would be counted twice: compare `/fgs spells` with a tooltip seen without gear. Forever reworked talents and some spells, so check `/fgs status` against your logs and adjust there. Not modelled: mana (running out of it), on-use and proc effects, set bonuses, % stat buffs such as Blessing of Kings.
 
 ### Forever API notes (checked November 2026)
 
@@ -151,7 +154,7 @@ Spell values are vanilla level-60 numbers (`Model.CONST`). Forever reworked tale
 lua5.1 tests/run.lua
 ```
 
-`tests/run.lua` stubs the WoW API (items, equipped slots, character sheet, talents, tooltips), loads every file in TOC order, and checks the parser (EN/FR, weapon speed), the model (Vengeance chain against a simulation, hit cap, crit falloff, Champion of the Light, weapon speed), scoring, reading the character (missing API, secret values), commands, saved-variable migration and the full tooltip flow (upgrade, equipped item, Shift details, rings, two-handers, empty slots). CI (GitHub Actions) runs it on every push and pull request.
+`tests/run.lua` stubs the WoW API (items, equipped slots, character sheet, talents, tooltips), loads every file in TOC order, and checks the parser (EN/FR, weapon speed), the model (Vengeance chain against a simulation, hit cap, crit falloff, Champion of the Light, weapon speed, Hammer of Wrath from level 44 and only when known), spell tooltip parsing (EN/FR), scoring, reading the character (missing API, secret values), commands, saved-variable migration and the full tooltip flow (upgrade, equipped item, Shift details, rings, two-handers, empty slots). CI (GitHub Actions) runs it on every push and pull request.
 
 ### Versions and release tags
 

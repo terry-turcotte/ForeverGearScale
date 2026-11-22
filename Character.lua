@@ -75,6 +75,42 @@ function Character.ReadTalents()
     return out, any
 end
 
+---------------------------------------------------------------- spells
+
+-- Spells whose numbers we read from their tooltip (English and French names).
+local SPELLS = {
+    how = { "Hammer of Wrath", "Marteau de courroux" },
+    holyStrike = { "Holy Strike", "Frappe sacrée" },
+    soc = { "Seal of Command", "Sceau d'autorité" },
+}
+Character.SPELLS = SPELLS
+
+-- Returns { how = { known, id, base, weapon, cd, lines }, ... }, or nil when
+-- none of them can be found (unknown locale or no spell API): then the model
+-- uses its constants and the level rule for Hammer of Wrath.
+function Character.ReadSpells()
+    local out, any = {}, false
+    for key, names in pairs(SPELLS) do
+        local id
+        for _, n in ipairs(names) do
+            id = C.GetKnownSpellID(n)
+            if id then break end
+        end
+        if id then
+            any = true
+            local lines = C.GetSpellLines(id)
+            local s = NS.Parser.Spell(lines)
+            s.known, s.id, s.lines = true, id, lines
+            out[key] = s
+        else
+            out[key] = { known = false }
+        end
+    end
+    if not any then return nil end
+    out.soc.known = nil   -- not having the Seal doesn't turn anything off
+    return out
+end
+
 ---------------------------------------------------------------- stats
 
 -- Main hand weapon DPS and speed from its tooltip (enchant stripped).
@@ -120,6 +156,9 @@ function Character.Read(fight, overrides)
     end
     set("wdps", wdps and math.max(0, wdps))
     if wspeed and not num(call(UnitAttackSpeed, "player")) then st.speed = wspeed end
+
+    st.spells = Character.ReadSpells()
+    if not st.spells then est[#est + 1] = "spell tooltips" end
 
     local talents, readable = Character.ReadTalents()
     if not readable then est[#est + 1] = "talents" end

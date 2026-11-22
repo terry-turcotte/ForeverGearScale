@@ -47,6 +47,7 @@ local function help()
     print("  /fgs reset — unpin everything, default fight and talent settings")
     print("  /fgs export — print the weights as a string; /fgs import <string> to pin them")
     print("  /fgs talents — dump what the talent API returns (for bug reports)")
+    print("  /fgs spells — Hammer of Wrath, Holy Strike, Seal of Command numbers read from your spellbook")
     print("  /fgs on||off — show or hide the tooltip lines")
 end
 
@@ -73,6 +74,12 @@ function handlers.status()
     print(string.format("  Holy spell damage %d · spell crit %.2f%% · spell hit %.1f%%", st.sp, st.spcrit, st.spellhit))
     print(string.format("  talents: Vengeance %d · Champion of the Light %d · Sacred Arbiter %d · Holy Strike %s",
         t.vengeance or 0, t.champion or 0, t.sacredArbiter or 0, (t.holyStrike or 1) > 0 and "on" or "off"))
+    local how = (p.parts.how or 0) > 0 and "yes"
+        or (st.level < NS.Model.CONST.howLevel and ("no, learned at " .. NS.Model.CONST.howLevel))
+        or ((st.spells and st.spells.how and st.spells.how.known == false) and "no, not in your spellbook")
+        or "no"
+    print("  Hammer of Wrath: " .. how .. " · spell numbers from "
+        .. (st.spells and "your spell tooltips (/fgs spells)" or "built-in defaults"))
     local x = p.parts
     print(string.format("  melee miss %.1f%% · spell miss %.0f%% · Vengeance %.1f stacks avg (+%.1f%% damage)",
         x.miss * 100, x.spellMiss * 100, x.stacks, x.vengeance * 100))
@@ -182,6 +189,39 @@ function handlers.talents()
     local t, any = NS.Character.ReadTalents()
     print(string.format("  read: Vengeance %d · Champion of the Light %d · Sacred Arbiter %d%s",
         t.vengeance, t.champion, t.sacredArbiter, any and "" or " (talent API gave nothing)"))
+end
+
+local SPELL_LABEL = { how = "Hammer of Wrath", holyStrike = "Holy Strike", soc = "Seal of Command (Judgement)" }
+
+function handlers.spells()
+    local spells = NS.Character.ReadSpells()
+    if not spells then
+        return say("no spell found in your spellbook (unknown client language or spell API): using built-in numbers.")
+    end
+    local K = NS.Model.CONST
+    local DEF = {
+        how = { base = K.howBase, cd = K.howCD }, holyStrike = { base = K.holyStrikeBase, weapon = K.holyStrikeWeapon, cd = K.holyStrikeCD },
+        soc = { base = K.jocBase, weapon = K.socWeapon },
+    }
+    say("spell numbers read from your spellbook (default in brackets when not found):")
+    for _, key in ipairs({ "how", "holyStrike", "soc" }) do
+        local sp, d = spells[key], DEF[key]
+        if sp.id then
+            local function f(field, fmt)
+                if sp[field] then return string.format(fmt, sp[field]) end
+                if d[field] then return "[" .. string.format(fmt, d[field]) .. "]" end
+                return "-"
+            end
+            print(string.format("  %s (id %s): damage %s · weapon %s · cooldown %s", SPELL_LABEL[key], tostring(sp.id),
+                f("base", "%.1f"), sp.weapon and string.format("%d%%", sp.weapon * 100)
+                    or (d.weapon and string.format("[%d%%]", d.weapon * 100) or "-"), f("cd", "%g sec")))
+            local text = table.concat(sp.lines or {}, " / ")
+            if #text > 200 then text = text:sub(1, 200) .. "..." end
+            print("    " .. text)
+        else
+            print("  " .. SPELL_LABEL[key] .. ": not in your spellbook")
+        end
+    end
 end
 
 function handlers.debug() NS.db.debug = not NS.db.debug; say("debug " .. (NS.db.debug and "on" or "off")) end

@@ -151,3 +151,39 @@ function Parser.Parse(lines)
     end
     return out, miss
 end
+
+-- Spell tooltip text -> { base = average damage, weapon = share of weapon
+-- damage (0-1), cd = cooldown in sec }. Any field may be missing. English and
+-- French. For a Seal, the damage range is the Judgement's (the text after
+-- "judge" / "jugement"), and the first range there is the normal one (the
+-- second is "if the target is stunned").
+function Parser.Spell(lines)
+    local text = table.concat(lines or {}, "\n"):lower()
+    local out = {}
+
+    local from = text:find("judge", 1, true) or text:find("jugement", 1, true) or 1
+    local part = text:sub(from)
+    local a, b = part:match("(%d+[%.,]?%d*)%s*to%s*(%d+[%.,]?%d*)")
+    if not a then a, b = part:match("(%d+[%.,]?%d*)%s*à%s*(%d+[%.,]?%d*)") end
+    if a then
+        out.base = (tonum(a) + tonum(b)) / 2
+    else
+        -- "... weapon damage plus 45 Holy damage" / "... plus 45 points de dégâts"
+        local n = text:match("plus%s+(%d+[%.,]?%d*)") or text:match("additional%s+(%d+[%.,]?%d*)")
+        if n then out.base = tonum(n) end
+    end
+
+    local pct = text:match("(%d+[%.,]?%d*)%%[^%d\n]-weapon") or text:match("(%d+[%.,]?%d*)%%[^%d\n]-arme")
+    if pct then out.weapon = tonum(pct) / 100 end
+
+    local cd = text:match("(%d+[%.,]?%d*)%s*sec%s*cooldown")
+        or text:match("recharge%s*:?%s*(%d+[%.,]?%d*)%s*sec")
+        or text:match("(%d+[%.,]?%d*)%s*sec%.?%s*de recharge")
+    if cd then
+        out.cd = tonum(cd)
+    else
+        local m = text:match("(%d+[%.,]?%d*)%s*min%s*cooldown") or text:match("recharge%s*:?%s*(%d+[%.,]?%d*)%s*min")
+        if m then out.cd = tonum(m) * 60 end
+    end
+    return out
+end

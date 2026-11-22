@@ -12,8 +12,9 @@
 --   sec + Hammer of Wrath during the last `execute` part of the fight, all
 --   multiplied by the average Vengeance bonus.
 --
--- Numbers are vanilla level-60 values. Forever reworked talents and some
--- spells, so the constants below are the place to tune them.
+-- Spell numbers (base damage, weapon %, cooldown) are read in game from your
+-- own spell tooltips when possible (st.spells, see Character.lua); the
+-- constants below are the fallback: vanilla level-60 / pre-launch values.
 
 local _, NS = ...
 local Model = {}
@@ -28,12 +29,16 @@ Model.CONST = {
     vengeanceStacks = 5,
     vengeanceDuration = 30,
     socPPM = 7, socWeapon = 0.7, socCoef = 0.2,
-    jocBase = 142, jocCoef = 0.429,
+    -- Judgement of Command, rank 5: 68.5 to 73.5 Holy damage (double only on a
+    -- stunned target, which bosses never are).
+    jocBase = 71, jocCoef = 0.429,
     -- Holy Strike (baseline, rank 8): instant melee strike, Holy damage =
     -- 50% weapon damage + 0.429 x spell damage. Sacred Arbiter: +20%.
     holyStrikeWeapon = 0.5, holyStrikeBase = 0, holyStrikeCoef = 0.429, holyStrikeCD = 10,
     sacredArbiterBonus = 0.2,
-    howBase = 370, howCoef = 0.429, howCD = 6,
+    -- Hammer of Wrath: learned at 44 in Forever (ranks at 44 / 52 / 60), 6 sec
+    -- cooldown, 1 sec cast (instant with Champion of the Light 5/5).
+    howBase = 370, howCoef = 0.429, howCD = 6, howLevel = 44,
 }
 local K = Model.CONST
 
@@ -107,9 +112,17 @@ function Model.Dps(st)
     local white = swing / speed * (glance * glanceMult + whiteCrit * 2 + (landed - glance - whiteCrit))
 
     -- Seal of Command: 7 procs per minute on landed swings, own melee roll.
+    -- Spell numbers read from the tooltips win over the constants.
+    local S = st.spells or {}
+    local function val(key, field, default)
+        local v = S[key] and S[key][field]
+        return type(v) == "number" and v or default
+    end
+    local function known(key) return not (S[key] and S[key].known == false) end
+
     local socPerSec = K.socPPM / 60 * landed
     local sp = st.sp or 0
-    local soc = socPerSec * (K.socWeapon * swing + K.socCoef * sp) * (landed + specialCrit)
+    local soc = socPerSec * (val("soc", "weapon", K.socWeapon) * swing + K.socCoef * sp) * (landed + specialCrit)
 
     -- Spells: spell hit table, Judgement and Hammer of Wrath crit with melee crit (x2).
     local spellMissBase = ({ [0] = 4, 5, 6, 17 })[clamp(target - level, 0, 3)]
@@ -117,17 +130,22 @@ function Model.Dps(st)
     local sHit = 1 - math.max(1, spellMissBase - (st.spellhit or 0)) / 100
     local spcrit = math.max(0, st.spcrit or 0) / 100
     local judge = math.max(1, f.judge or 9)
-    local joc = (K.jocBase + K.jocCoef * sp) * sHit * (1 + crit) / judge
+    local joc = (val("soc", "base", K.jocBase) + K.jocCoef * sp) * sHit * (1 + crit) / judge
     -- Holy Strike: a melee special (miss/dodge, melee crit x2), on cooldown.
-    local useHS = (t.holyStrike or 1) > 0
+    local useHS = (t.holyStrike or 1) > 0 and known("holyStrike")
+    local hsCD = math.max(1, val("holyStrike", "cd", K.holyStrikeCD))
     local hs = 0
     if useHS then
-        hs = (K.holyStrikeWeapon * swing + K.holyStrikeBase + K.holyStrikeCoef * sp)
+        hs = (val("holyStrike", "weapon", K.holyStrikeWeapon) * swing + val("holyStrike", "base", K.holyStrikeBase)
+            + K.holyStrikeCoef * sp)
             * (1 + (t.sacredArbiter or 0) * K.sacredArbiterBonus)
-            * (landed + specialCrit) / K.holyStrikeCD
+            * (landed + specialCrit) / hsCD
     end
-    local exec = clamp(f.execute or 0, 0, 1)
-    local how = exec * (K.howBase + K.howCoef * sp) * (1 - miss) * (1 + crit) / K.howCD
+    -- Hammer of Wrath: only once learned (level 44), only in the execute phase.
+    local useHoW = known("how") and level >= K.howLevel
+    local exec = useHoW and clamp(f.execute or 0, 0, 1) or 0
+    local howCD = math.max(1, val("how", "cd", K.howCD))
+    local how = exec * (val("how", "base", K.howBase) + K.howCoef * sp) * (1 - miss) * (1 + crit) / howCD
 
     -- Vengeance: every non-periodic hit above can crit and refresh the buff.
     local dur = K.vengeanceDuration
@@ -135,8 +153,8 @@ function Model.Dps(st)
         { dur / speed, whiteCrit },
         { dur * socPerSec, specialCrit },
         { dur / judge, sHit * crit },
-        { useHS and dur / K.holyStrikeCD or 0, specialCrit },
-        { exec * dur / K.howCD, (1 - miss) * crit },
+        { useHS and dur / hsCD or 0, specialCrit },
+        { exec * dur / howCD, (1 - miss) * crit },
     }
     local n, pc = 0, 0
     for _, e in ipairs(events) do n, pc = n + e[1], pc + e[1] * e[2] end

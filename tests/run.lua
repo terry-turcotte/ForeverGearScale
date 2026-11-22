@@ -33,7 +33,13 @@ C_Item = { GetItemInfoInstant = function(link)
     local it = ITEMS[(link:gsub("(item:%-?%d+):[^:|]*:[^:|]*:[^:|]*:[^:|]*:[^:|]*", "%1:::::"))] or ITEMS[link]
     if it then return 1, "Armor", "Plate", it.equipLoc end
 end }
-C_TooltipInfo = { GetHyperlink = function(link)
+C_TooltipInfo = { GetSpellByID = function(id)
+    local t = BY_ID[id]
+    if not t then return nil end
+    local lines = {}
+    for i, x in ipairs(t) do lines[i] = { leftText = x } end
+    return { lines = lines }
+end, GetHyperlink = function(link)
     local it = ITEMS[link]
     if not it then return nil end
     local lines = {}
@@ -41,6 +47,20 @@ C_TooltipInfo = { GetHyperlink = function(link)
     return { lines = lines }
 end }
 function UnitClass() return "Paladin", PLAYER.class end
+-- Spellbook: name -> { id, tooltip lines }
+local SPELLBOOK = {
+    ["Hammer of Wrath"] = { 24239, { "Hammer of Wrath", "Rank 3", "425 Mana", "30 yd range", "1 sec cast",
+        "6 sec cooldown", "Hurls a hammer that strikes an enemy for 316 to 348 Holy damage. Only usable on enemies that have 20% or less health." } },
+    ["Holy Strike"] = { 900008, { "Holy Strike", "Melee Range", "10 sec cooldown",
+        "An instant strike that causes 50% of weapon damage plus 40 Holy damage." } },
+    ["Seal of Command"] = { 20920, { "Seal of Command", "Gives the Paladin a chance to deal additional Holy damage equal to 70% of normal weapon damage. Lasts 30 sec. Unleashing this Seal's energy will judge an enemy, instantly causing 68.5 to 73.5 Holy damage, 137 to 147 if the target is stunned or incapacitated." } },
+}
+BY_ID = {}   -- global: the C_TooltipInfo stub above reads it
+for _, v in pairs(SPELLBOOK) do BY_ID[v[1]] = v[2] end
+C_Spell = { GetSpellInfo = function(name)
+    local s = SPELLBOOK[name]
+    if s then return { name = name, spellID = s[1] } end
+end }
 -- Character sheet: a geared level 60 Ret.
 local SHEET = { level = 60, ap = 1200, crit = 20, hit = 5, spellhit = 0, spcrit = 9, sp = 80,
     speed = 3.6, skill = 300 }
@@ -182,6 +202,20 @@ test("weights: Retribution DPS table only, known stats", function()
     eq(NS.RET.weights.sta, nil, "DPS only: no Defense or Sustain")
 end)
 
+test("parser: spell tooltips (damage, weapon %, cooldown), English and French", function()
+    local h = NS.Parser.Spell(BY_ID[24239])
+    near(h.base, 332); near(h.cd, 6); eq(h.weapon, nil)
+    local j = NS.Parser.Spell(BY_ID[20920])
+    near(j.base, 71, "normal Judgement, not the stunned one"); near(j.weapon, 0.7)
+    local hs = NS.Parser.Spell(BY_ID[900008])
+    near(hs.base, 40); near(hs.weapon, 0.5); near(hs.cd, 10)
+    local fr = NS.Parser.Spell({ "Marteau de courroux", "Recharge 6 sec.",
+        "Lance un marteau qui inflige 316 à 348 points de dégâts du Sacré." })
+    near(fr.base, 332); near(fr.cd, 6)
+    local frj = NS.Parser.Spell({ "Libérer l'énergie de ce sceau pour un jugement inflige 68,5 à 73,5 points de dégâts." })
+    near(frj.base, 71)
+end)
+
 ---------------------------------------------------------------- model
 local M = NS.Model
 local function state(over)
@@ -247,6 +281,30 @@ test("model: Holy Strike on cooldown, Sacred Arbiter +20%", function()
     assert(y.holyStrike > x.holyStrike)
 end)
 
+test("model: Hammer of Wrath only from level 44 and when known", function()
+    local _, a = M.Dps(state({ level = 60, target = 63 }))
+    assert(a.how > 0)
+    local _, b = M.Dps(state({ level = 43, target = 46 }))
+    eq(b.how, 0, "not learned yet")
+    local st = state(); st.spells = { how = { known = false } }
+    local _, c = M.Dps(st)
+    eq(c.how, 0, "not in the spellbook")
+    st.spells = { how = { known = true, base = 332, cd = 6 } }
+    local _, d = M.Dps(st)
+    near(d.how, a.how * (332 + 0.429 * st.sp) / (370 + 0.429 * st.sp), "tooltip damage used")
+end)
+
+test("model: spell numbers from tooltips replace the constants", function()
+    local st = state()
+    local _, a = M.Dps(st)
+    st.spells = { soc = { base = 142 } }
+    local _, b = M.Dps(st)
+    assert(b.joc > a.joc)
+    st.spells = { holyStrike = { known = true, weapon = 0.25, cd = 10 } }
+    local _, c = M.Dps(st)
+    assert(c.holyStrike < a.holyStrike)
+end)
+
 test("model: swap delta is exact across the hit cap", function()
     local st = state({ hit = 8 })
     -- +3% hit only gives 1% before the cap
@@ -277,6 +335,17 @@ test("profile: reads the sheet and talents, live weights", function()
     eq(p.state.talents.holyStrike, 1)
     eq(#p.estimated, 0, table.concat(p.estimated, ","))
     near(p.state.wdps, 60, "weapon DPS backed out of the sheet damage")
+    near(p.state.spells.how.base, 332, "Hammer of Wrath read from its tooltip")
+    near(p.state.spells.soc.base, 71); near(p.state.spells.holyStrike.base, 40)
+    assert(p.parts.how > 0)
+    local saved = SPELLBOOK["Hammer of Wrath"]
+    SPELLBOOK["Hammer of Wrath"] = nil; NS.Profile.Invalidate()
+    eq(NS.Profile.Get().parts.how, 0, "not in the spellbook")
+    SPELLBOOK["Hammer of Wrath"] = saved
+    SHEET.level = 43; NS.Profile.Invalidate()
+    eq(NS.Profile.Get().parts.how, 0, "below 44")
+    SHEET.level = 60; NS.Profile.Invalidate()
+    NS.Commands.Run("spells")
     near(p.weights.str, 10); assert(p.weights.hit > 50); eq(p.weights.sta, nil)
     SHEET.hit = 10; NS.Profile.Invalidate()
     near(NS.Profile.Get().weights.hit, 0, "capped")
@@ -305,6 +374,16 @@ test("profile: missing API falls back to defaults, talents can be set by hand", 
     eq(p.state.talents.vengeance, 3); eq(p.state.target, 62)
     NS.Commands.Run("set vengeance auto"); NS.Commands.Run("set target auto")
     GetCritChance, GetTalentInfo = old, oldTI
+    NS.Profile.Invalidate()
+end)
+
+test("profile: unknown spellbook (other language) falls back to the constants", function()
+    local old = C_Spell
+    C_Spell = nil
+    NS.Profile.Invalidate()
+    local p = NS.Profile.Get()
+    eq(p.state.spells, nil); assert(p.parts.how > 0, "level rule only")
+    C_Spell = old
     NS.Profile.Invalidate()
 end)
 
