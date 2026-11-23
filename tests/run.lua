@@ -410,6 +410,47 @@ test("profile: unknown spellbook (other language) falls back to the constants", 
     NS.Profile.Invalidate()
 end)
 
+test("talents: Forever-like client, only C_SpecializationInfo.GetTalentInfo", function()
+    local g = { GetTalentInfo, GetNumTalents, GetNumTalentTabs }
+    GetTalentInfo, GetNumTalents, GetNumTalentTabs = nil, nil, nil
+    -- Grid layout: Ret tree talents at tier/column, answered as tables.
+    local GRID = { [3] = { ["1,1"] = { name = "Benediction", rank = 5, maxRank = 5 },
+        ["3,4"] = { name = "Vengeance", rank = 3, maxRank = 3 },
+        ["5,2"] = { name = "Champion of the Light", rank = 5, maxRank = 5 },
+        ["6,3"] = { name = "Sacred Arbiter", rank = 1, maxRank = 1 },
+        ["9,2"] = { name = "Unsealed Wrath", rank = 1, maxRank = 1 } } }
+    local shapes = {
+        -- { specializationIndex, tier, column }
+        function(q) if type(q) == "table" and q.tier and q.specializationIndex then
+            return (GRID[q.specializationIndex] or {})[q.tier .. "," .. q.column] end end,
+        -- { tier, column, groupIndex }, no tree: everything in one grid, "selected" instead of rank
+        function(q) if type(q) == "table" and q.tier and not q.specializationIndex then
+            local t = GRID[3][q.tier .. "," .. q.column]
+            if t then return { name = t.name, selected = true } end end end,
+        -- positional (tab, i)
+        function(tab, i) if type(tab) == "number" then
+            local list = {}
+            for _, t in pairs(GRID[tab] or {}) do list[#list + 1] = t end
+            table.sort(list, function(x, y) return x.name < y.name end)
+            local t = list[i]
+            if t then return t end end end,
+    }
+    for n, fn in ipairs(shapes) do
+        C_SpecializationInfo = { GetNumSpecializations = function() return 3 end,
+            GetTalentInfo = function(...) if select("#", ...) == 1 and type((...)) == "table" and (...).talentIndex then
+                error("bad query") end return fn(...) end }
+        local t, any, how = NS.Character.ReadTalents()
+        assert(any, "shape " .. n .. " not read")
+        eq(t.vengeance, 3, "shape " .. n .. " via " .. tostring(how))
+        eq(t.unsealedWrath, 1, "shape " .. n)
+        eq(t.champion, 5, "shape " .. n)
+    end
+    NS.Commands.Run("talents")   -- the dump must not error
+    C_SpecializationInfo = nil
+    GetTalentInfo, GetNumTalents, GetNumTalentTabs = g[1], g[2], g[3]
+    NS.Profile.Invalidate()
+end)
+
 test("profile: secret values in combat keep the last reading", function()
     issecretvalue = function(v) return v == 1200 - 200 end
     NS.Profile.Invalidate()

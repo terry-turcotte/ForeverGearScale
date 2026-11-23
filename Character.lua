@@ -30,26 +30,57 @@ local TALENTS = {
     sacredArbiter = { "sacred arbiter", "arbitre sacré" },
     unsealedWrath = { "unsealed wrath", "courroux descellé" },
 }
+local MAX_RANK = { vengeance = 3, champion = 5, sacredArbiter = 1, unsealedWrath = 1 }
 local BY_NAME = {}
 for key, names in pairs(TALENTS) do for _, n in ipairs(names) do BY_NAME[n] = key end end
 
 local CSI = function() return C_SpecializationInfo or {} end
 
--- name, rank, maxRank of talent i in tree tab; nil when there is no such talent.
-local function talentInfo(tab, i)
-    if GetTalentInfo then
-        local r = { pcall(GetTalentInfo, tab, i) }
-        if not r[1] or r[2] == nil then return nil end
-        if type(r[2]) == "table" then return r[2].name, r[2].rank, r[2].maxRank end
-        return r[2], r[6], r[7]
+-- Forever has no GetTalentInfo global; C_SpecializationInfo.GetTalentInfo
+-- exists but its query shape isn't documented. We try every shape the modern
+-- clients use, keep the first one that answers, and /fgs talents prints what
+-- each one returns.
+
+-- name, rank, maxRank from one call's results ({ ok, ... }); nil if empty.
+local function parse(r)
+    if not r[1] then return nil end
+    local v = r[2]
+    if type(v) == "table" then
+        local name = v.name or v.talentName
+        if not name and v.spellID and C_Spell and C_Spell.GetSpellInfo then
+            local ok, info = pcall(C_Spell.GetSpellInfo, v.spellID)
+            name = ok and type(info) == "table" and info.name or nil
+        end
+        if type(name) ~= "string" or C.IsSecret(name) then return nil end
+        local rank = v.rank or v.currentRank or v.pointsSpent or v.points or v.ranksPurchased
+        -- Only "selected" and no rank: taken at its max rank (most builds max these).
+        if rank == nil then rank = (v.selected or v.known or v.isSelected) and (v.maxRank or "max") or 0 end
+        return name, rank, v.maxRank or v.maxRanks or v.numRanks
     end
-    local f = CSI().GetTalentInfo
-    if not f then return nil end
-    local ok, t = pcall(f, { specializationIndex = tab, talentIndex = i })
-    if not ok or type(t) ~= "table" then return nil end
-    return t.name, t.rank, t.maxRank
+    if type(v) == "string" and not C.IsSecret(v) then return v, r[6], r[7] end  -- name, icon, tier, column, rank, maxRank
 end
-Character.TalentInfo = talentInfo
+
+-- Talent i of tree tab.
+local INDEX_SHAPES = {
+    { label = "GetTalentInfo(tab, i)", fn = function() return GetTalentInfo end,
+      call = function(f, tab, i) return { pcall(f, tab, i) } end },
+    { label = "{specializationIndex, talentIndex}", fn = function() return CSI().GetTalentInfo end,
+      call = function(f, tab, i) return { pcall(f, { specializationIndex = tab, talentIndex = i }) } end },
+    { label = "{specializationIndex, talentIndex, groupIndex}", fn = function() return CSI().GetTalentInfo end,
+      call = function(f, tab, i) return { pcall(f, { specializationIndex = tab, talentIndex = i, groupIndex = 1, isInspect = false }) } end },
+    { label = "{tabIndex, talentIndex}", fn = function() return CSI().GetTalentInfo end,
+      call = function(f, tab, i) return { pcall(f, { tabIndex = tab, talentIndex = i }) } end },
+    { label = "(tab, i)", fn = function() return CSI().GetTalentInfo end,
+      call = function(f, tab, i) return { pcall(f, tab, i) } end },
+}
+-- Talent at tier/column (row/column of the tree), possibly with the tree.
+local GRID_SHAPES = {
+    { label = "{specializationIndex, tier, column}", fn = function() return CSI().GetTalentInfo end,
+      call = function(f, tab, r, c) return { pcall(f, { specializationIndex = tab, tier = r, column = c }) } end },
+    { label = "{tier, column, groupIndex}", fn = function() return CSI().GetTalentInfo end, noTab = true,
+      call = function(f, _, r, c) return { pcall(f, { tier = r, column = c, groupIndex = 1, isInspect = false }) } end },
+}
+Character.TALENT_SHAPES = { index = INDEX_SHAPES, grid = GRID_SHAPES }
 
 local function numTabs()
     local f = GetNumTalentTabs or CSI().GetNumSpecializations
@@ -57,23 +88,60 @@ local function numTabs()
     return (n and n > 0) and math.min(n, 3) or 3
 end
 
--- Returns { vengeance = r, champion = r, sacredArbiter = r, unsealedWrath = r } and whether the
--- talent API answered at all.
-function Character.ReadTalents()
-    local out = { vengeance = 0, champion = 0, sacredArbiter = 0, unsealedWrath = 0 }
-    local any = false
+local workingShape   -- the shape that answered last time
+
+-- All talents as { name, rank } with one shape; empty if it gives nothing.
+local function readWith(shape, isGrid)
+    local f = shape.fn()
+    if not f then return {} end
+    local list = {}
     local numFn = GetNumTalents or CSI().GetNumTalents
-    for tab = 1, numTabs() do
-        local n = num(call(numFn, tab))
-        for i = 1, n or 40 do
-            local name, rank = talentInfo(tab, i)
-            if name == nil then break end
-            any = true
-            local key = type(name) == "string" and not C.IsSecret(name) and BY_NAME[name:lower()]
-            if key then out[key] = num(rank) or 0 end
+    for tab = 1, (shape.noTab and 1 or numTabs()) do
+        if isGrid then
+            for r = 1, 11 do
+                for c = 1, 4 do
+                    local name, rank = parse(shape.call(f, tab, r, c))
+                    if name then list[#list + 1] = { name, rank } end
+                end
+            end
+        else
+            local n = num(call(numFn, tab))
+            for i = 1, n or 40 do
+                local name, rank = parse(shape.call(f, tab, i))
+                if name == nil then break end
+                list[#list + 1] = { name, rank }
+            end
         end
     end
-    return out, any
+    return list
+end
+
+local function readAll()
+    if workingShape then
+        local list = readWith(workingShape.shape, workingShape.grid)
+        if #list > 0 then return list, workingShape.shape.label end
+    end
+    for _, sh in ipairs(INDEX_SHAPES) do
+        local list = readWith(sh, false)
+        if #list > 0 then workingShape = { shape = sh, grid = false }; return list, sh.label end
+    end
+    for _, sh in ipairs(GRID_SHAPES) do
+        local list = readWith(sh, true)
+        if #list > 0 then workingShape = { shape = sh, grid = true }; return list, sh.label end
+    end
+    return {}, nil
+end
+
+-- Returns { vengeance = r, champion = r, sacredArbiter = r, unsealedWrath = r },
+-- whether the talent API answered at all, and which call shape worked.
+function Character.ReadTalents()
+    local out = { vengeance = 0, champion = 0, sacredArbiter = 0, unsealedWrath = 0 }
+    local list, how = readAll()
+    for _, t in ipairs(list) do
+        local key = BY_NAME[t[1]:lower()]
+        if key then out[key] = t[2] == "max" and MAX_RANK[key] or num(t[2]) or 0 end
+    end
+    return out, #list > 0, how, #list
 end
 
 ---------------------------------------------------------------- spells

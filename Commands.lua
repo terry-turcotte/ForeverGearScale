@@ -192,23 +192,43 @@ local function show(v)
 end
 
 function handlers.talents()
-    local CSI = C_SpecializationInfo or {}
     say("talent API on this client:")
-    local fns = {}
-    for _, name in ipairs({ "GetNumTalentTabs", "GetNumTalents", "GetTalentInfo" }) do
-        fns[#fns + 1] = name .. (_G[name] and "+" or "-")
+    local have = {}
+    for _, name in ipairs({ "GetTalentInfo", "GetNumTalents", "GetNumTalentTabs", "GetTalentTabInfo" }) do
+        have[#have + 1] = name .. (_G[name] and "+" or "-")
     end
-    print("  globals: " .. table.concat(fns, " ") .. " · C_SpecializationInfo.GetTalentInfo"
-        .. (CSI.GetTalentInfo and "+" or "-"))
-    if GetTalentInfo then
-        local r = { pcall(GetTalentInfo, 3, 1) }
+    for _, name in ipairs({ "C_SpecializationInfo", "C_ClassTalents", "C_Traits", "C_Talent" }) do
+        have[#have + 1] = name .. (_G[name] and "+" or "-")
+    end
+    print("  " .. table.concat(have, " "))
+    local csi = {}
+    for k, v in pairs(C_SpecializationInfo or {}) do if type(v) == "function" then csi[#csi + 1] = k end end
+    table.sort(csi)
+    print("  C_SpecializationInfo: " .. (#csi > 0 and table.concat(csi, " ") or "(none)"))
+    -- Raw answer of every query shape, for Retribution (tab 3) talent 1 / tier 1 column 1.
+    local shapes = NS.Character.TALENT_SHAPES
+    local function raw(label, r)
         local out = {}
         for i = 2, math.max(#r, 2) do out[#out + 1] = show(r[i]) end
-        print("  talent 3,1: " .. (r[1] and "" or "ERROR ") .. table.concat(out, ", "))
+        local text = (r[1] and "" or "ERROR ") .. table.concat(out, ", ")
+        if #text > 160 then text = text:sub(1, 160) .. "..." end
+        print("  " .. label .. ": " .. text)
     end
-    local t, any = NS.Character.ReadTalents()
+    for _, sh in ipairs(shapes.index) do
+        local f = sh.fn()
+        if f then raw(sh.label, sh.call(f, 3, 1)) end
+    end
+    for _, sh in ipairs(shapes.grid) do
+        local f = sh.fn()
+        if f then raw(sh.label, sh.call(f, 3, 1, 1)) end
+    end
+    local t, any, how, n = NS.Character.ReadTalents()
     print(string.format("  read: Vengeance %d · Champion of the Light %d · Sacred Arbiter %d · Unsealed Wrath %d%s",
-        t.vengeance, t.champion, t.sacredArbiter, t.unsealedWrath, any and "" or " (talent API gave nothing)"))
+        t.vengeance, t.champion, t.sacredArbiter, t.unsealedWrath,
+        any and string.format(" (%d talents via %s)", n, how) or " (talent API gave nothing)"))
+    if not any then
+        print("  set them by hand: /fgs set vengeance 3 · champion 5 · arbiter 1 · unsealed 1")
+    end
 end
 
 local SPELL_LABEL = { how = "Hammer of Wrath", holyStrike = "Holy Strike", soc = "Seal of Command (Judgement)",
