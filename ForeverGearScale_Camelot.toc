@@ -2,7 +2,7 @@
 ## Title: Forever Gear Scale
 ## Notes: Retribution Paladin DPS calculator: live stat weights from your character sheet and talents (hit cap, crit and Vengeance, Champion of the Light), and the DPS change of every item right in its tooltip.
 ## Author: Les Patriotes d'Azeroth
-## Version: 0.2.0-beta.1
+## Version: 0.2.0-beta.2
 ## X-License: MIT
 ## IconTexture: Interface\Icons\INV_Misc_Gear_01
 ## SavedVariables: ForeverGearScaleDB
