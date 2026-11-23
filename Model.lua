@@ -8,6 +8,8 @@
 --
 -- Rotation modelled:
 --   white swings (2H) + Seal of Command procs (7 PPM, 70% weapon damage)
+--   (+ the Unsealed Wrath seal twist: bank Command stacks, release them with
+--   one Seal of Righteousness swing)
 --   + Holy Strike on cooldown (10 sec) + Judgement of Command every `judge`
 --   sec + Hammer of Wrath during the last `execute` part of the fight, all
 --   multiplied by the average Vengeance bonus.
@@ -36,13 +38,20 @@ Model.CONST = {
     -- 50% weapon damage + 0.429 x spell damage. Sacred Arbiter: +20%.
     holyStrikeWeapon = 0.5, holyStrikeBase = 0, holyStrikeCoef = 0.429, holyStrikeCD = 10,
     sacredArbiterBonus = 0.2,
+    -- Unsealed Wrath (Ret capstone): each landed hit with a seal stores a copy
+    -- (max 3, 15 sec); the first landed hit with another seal releases them,
+    -- each with the seal's normal proc chance.
+    uwMaxStacks = 3,
+    -- Seal of Righteousness, Holy damage added to that one swing (rough
+    -- default; read from its tooltip when possible). Does not crit.
+    sorBase = 60, sorCoef = 0.1,
     -- Hammer of Wrath: learned at 44 in Forever (ranks at 44 / 52 / 60), 6 sec
     -- cooldown, 1 sec cast (instant with Champion of the Light 5/5).
     howBase = 370, howCoef = 0.429, howCD = 6, howLevel = 44,
 }
 local K = Model.CONST
 
-Model.DEFAULT_FIGHT = { judge = 9, execute = 0.2 }
+Model.DEFAULT_FIGHT = { judge = 9, execute = 0.2, uwStacks = 3 }
 
 -- A level-60 Ret with blues/epics, used when the client gives us nothing.
 function Model.DefaultState()
@@ -50,8 +59,8 @@ function Model.DefaultState()
         level = 60, target = 63,
         ap = 1100, crit = 18, hit = 3, wskill = 300, wdps = 60, speed = 3.6,
         sp = 60, spcrit = 8, spellhit = 0,
-        talents = { vengeance = 0, champion = 0, sacredArbiter = 0, holyStrike = 1 },
-        fight = { judge = 9, execute = 0.2 },
+        talents = { vengeance = 0, champion = 0, sacredArbiter = 0, unsealedWrath = 0, holyStrike = 1 },
+        fight = { judge = 9, execute = 0.2, uwStacks = 3 },
     }
 end
 
@@ -120,9 +129,22 @@ function Model.Dps(st)
     end
     local function known(key) return not (S[key] and S[key].known == false) end
 
-    local socPerSec = K.socPPM / 60 * landed
     local sp = st.sp or 0
+    -- Unsealed Wrath cycle: `uwStacks` landed swings with Command (one stored
+    -- copy each), then one landed swing with Righteousness releases them all.
+    local uwShare, storedPerSec, sorPerSec = 1, 0, 0
+    if (t.unsealedWrath or 0) > 0 and landed > 0 then
+        local stacks = clamp(math.floor(f.uwStacks or 3), 1, K.uwMaxStacks)
+        local socSwings = stacks / landed            -- swings needed to land `stacks` hits
+        local cycleSec = (socSwings + 1 / landed) * speed
+        uwShare = socSwings / (socSwings + 1 / landed)
+        local procChance = math.min(1, K.socPPM * speed / 60)
+        storedPerSec = stacks * procChance / cycleSec
+        sorPerSec = 1 / cycleSec
+    end
+    local socPerSec = K.socPPM / 60 * landed * uwShare + storedPerSec
     local soc = socPerSec * (val("soc", "weapon", K.socWeapon) * swing + K.socCoef * sp) * (landed + specialCrit)
+    local sor = sorPerSec * (val("sor", "base", K.sorBase) + K.sorCoef * sp)
 
     -- Spells: spell hit table, Judgement and Hammer of Wrath crit with melee crit (x2).
     local spellMissBase = ({ [0] = 4, 5, 6, 17 })[clamp(target - level, 0, 3)]
@@ -152,6 +174,7 @@ function Model.Dps(st)
     local events = {
         { dur / speed, whiteCrit },
         { dur * socPerSec, specialCrit },
+        { dur * sorPerSec, 0 },
         { dur / judge, sHit * crit },
         { useHS and dur / hsCD or 0, specialCrit },
         { exec * dur / howCD, (1 - miss) * crit },
@@ -161,9 +184,9 @@ function Model.Dps(st)
     local stacks = n > 0 and Model.VengeanceStacks(pc / n, math.floor(n + 0.5)) or 0
     local veng = (t.vengeance or 0) * K.vengeancePerRank / 100 * stacks
 
-    local raw = white + soc + joc + hs + how
+    local raw = white + soc + sor + joc + hs + how
     return raw * (1 + veng), {
-        white = white, soc = soc, joc = joc, holyStrike = hs, how = how,
+        white = white, soc = soc, sor = sor, joc = joc, holyStrike = hs, how = how,
         vengeance = veng, stacks = stacks, miss = miss, spellMiss = 1 - sHit,
     }
 end

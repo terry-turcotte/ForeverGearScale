@@ -28,6 +28,7 @@ local TALENTS = {
     vengeance = { "vengeance" },
     champion = { "champion of the light", "champion de la lumière" },
     sacredArbiter = { "sacred arbiter", "arbitre sacré" },
+    unsealedWrath = { "unsealed wrath", "courroux descellé" },
 }
 local BY_NAME = {}
 for key, names in pairs(TALENTS) do for _, n in ipairs(names) do BY_NAME[n] = key end end
@@ -56,10 +57,10 @@ local function numTabs()
     return (n and n > 0) and math.min(n, 3) or 3
 end
 
--- Returns { vengeance = r, champion = r, sacredArbiter = r } and whether the
+-- Returns { vengeance = r, champion = r, sacredArbiter = r, unsealedWrath = r } and whether the
 -- talent API answered at all.
 function Character.ReadTalents()
-    local out = { vengeance = 0, champion = 0, sacredArbiter = 0 }
+    local out = { vengeance = 0, champion = 0, sacredArbiter = 0, unsealedWrath = 0 }
     local any = false
     local numFn = GetNumTalents or CSI().GetNumTalents
     for tab = 1, numTabs() do
@@ -82,6 +83,7 @@ local SPELLS = {
     how = { "Hammer of Wrath", "Marteau de courroux" },
     holyStrike = { "Holy Strike", "Frappe sacrée" },
     soc = { "Seal of Command", "Sceau d'autorité" },
+    sor = { "Seal of Righteousness", "Sceau de piété" },
 }
 Character.SPELLS = SPELLS
 
@@ -99,7 +101,7 @@ function Character.ReadSpells()
         if id then
             any = true
             local lines = C.GetSpellLines(id)
-            local s = NS.Parser.Spell(lines)
+            local s = key == "sor" and { base = NS.Parser.SealHit(lines) } or NS.Parser.Spell(lines)
             s.known, s.id, s.lines = true, id, lines
             out[key] = s
         else
@@ -107,7 +109,7 @@ function Character.ReadSpells()
         end
     end
     if not any then return nil end
-    out.soc.known = nil   -- not having the Seal doesn't turn anything off
+    out.soc.known, out.sor.known = nil, nil   -- not having a Seal doesn't turn anything off
     return out
 end
 
@@ -170,6 +172,7 @@ function Character.Read(fight, overrides)
     st.fight = {
         judge = fight.judge or NS.Model.DEFAULT_FIGHT.judge,
         execute = fight.execute or NS.Model.DEFAULT_FIGHT.execute,
+        uwStacks = fight.uwstacks or NS.Model.DEFAULT_FIGHT.uwStacks,
     }
     st.target = fight.target or (st.level + 3)
     return st, est

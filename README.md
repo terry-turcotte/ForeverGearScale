@@ -36,8 +36,10 @@ Gear Scale · Retribution                Upgrade
 | `/fgs set judge 9` | Seconds between Judgements of Command (default 9) |
 | `/fgs set execute 0.2` | Share of the fight spent under 20% health, where Hammer of Wrath is used (default 0.2) |
 | `/fgs set vengeance\|champion\|arbiter <rank\|auto>` | Talent rank (Vengeance, Champion of the Light, Sacred Arbiter), if the client can't read it (or to test a build) |
+| `/fgs set unsealed 0\|1` | Unsealed Wrath, if the client can't read it |
+| `/fgs set uwstacks 2\|3` | Unsealed Wrath: how many Seal of Command stacks you bank before the Seal of Righteousness swing (default 3). `/fgs status` shows the DPS at 2 and at 3 |
 | `/fgs set holystrike 0\|1` | Takes Holy Strike out of the rotation, or puts it back (default: in) |
-| `/fgs spells` | The Hammer of Wrath, Holy Strike and Seal of Command numbers read from your spellbook (damage, weapon %, cooldown), with the tooltip text: paste it in a bug report if a number looks wrong |
+| `/fgs spells` | The Hammer of Wrath, Holy Strike, Seal of Command and Seal of Righteousness numbers read from your spellbook (damage, weapon %, cooldown), with the tooltip text: paste it in a bug report if a number looks wrong |
 | `/fgs talents` | Dumps what the talent API returns and the ranks read: paste it in a bug report |
 | `/fgs reset` | Unpins everything; fight and talent settings back to default |
 | `/fgs export` / `/fgs import <string>` | Copy weights as text: `str=10;agi=8.4;crit=166;…`. Imported stats are pinned. Old 3-axis strings (`str=10/0.3/0;…\|prio=…`) still import; only the DPS number is kept |
@@ -130,10 +132,11 @@ Each DPS weight is 5 × (DPS gained by 1 point of the stat) ÷ (DPS gained by 1 
 - **Melee attack table** against the target level (default your level + 3): miss (9% cap vs a boss), dodge, glancing blows, crit suppression, weapon skill.
 - **White swings** with your weapon DPS and speed, plus Attack Power.
 - **Seal of Command**: 7 procs per minute, 70% weapon damage + 20% of spell damage. Slower weapons hit harder per proc, so weapon speed counts on weapon swaps.
+- **Unsealed Wrath** (Ret capstone), played as a seal twist: you bank `uwstacks` Seal of Command stacks (one per landed hit), switch to Seal of Righteousness for one landed swing, then back. That swing releases every banked copy, each with Seal of Command's normal proc chance, and adds Righteousness's Holy damage (no crit). So you get more Seal of Command procs per minute, which makes weapon DPS, Attack Power and hit a bit more valuable. Not modelled: the two extra global cooldowns and the mana of each twist.
 - **Holy Strike** on cooldown (10 sec): a melee strike (melee hit and crit) for 50% weapon damage + 42.9% of spell damage as Holy, +20% with **Sacred Arbiter**.
 - **Judgement of Command** every 9 sec (spell hit, melee crit): the normal damage, not the "if stunned" one, since bosses are never stunned.
 - **Hammer of Wrath** on cooldown (6 sec) in the execute phase (melee hit and crit), counted as instant (Champion of the Light 5/5). Only from **level 44**, when Forever teaches it, and only if it is in your spellbook.
-- **Spell numbers are read from your own spell tooltips**: Hammer of Wrath's damage and cooldown, Holy Strike's weapon %, bonus damage and cooldown, and the Judgement of Command damage from Seal of Command (English and French clients). This follows your rank and any Forever change. If none of the spells can be found (another client language, or no spell API), the built-in numbers below are used.
+- **Spell numbers are read from your own spell tooltips**: Hammer of Wrath's damage and cooldown, Holy Strike's weapon %, bonus damage and cooldown, the Judgement of Command damage from Seal of Command, and Seal of Righteousness's per-hit damage (English and French clients). This follows your rank and any Forever change. If none of the spells can be found (another client language, or no spell API), the built-in numbers below are used.
 - **Vengeance**: +1% damage per rank per stack, 5 stacks, 30 sec. Every non-periodic hit above can crit and refresh it. The average stack count is solved exactly from your crit chance and hit rate, so crit is worth a lot at low crit and little once the buff never drops.
 - **Champion of the Light**: 12% of Intellect per rank as spell damage, so Intellect picks up spell damage's value.
 - Strength = 2 AP, 20 Agility = 1% crit, 54 Intellect = 1% spell crit.
