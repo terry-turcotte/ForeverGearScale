@@ -187,3 +187,16 @@ function Parser.Spell(lines)
     end
     return out
 end
+
+-- A seal's per-hit Holy damage ("each melee attack 33 additional Holy
+-- damage" / "33 points de dégâts du Sacré supplémentaires"), ignoring the
+-- Judgement part of the text.
+function Parser.SealHit(lines)
+    local text = table.concat(lines or {}, "\n"):lower()
+    local cut = text:find("judge", 1, true) or text:find("jugement", 1, true)
+    if cut then text = text:sub(1, cut - 1) end
+    local n = text:match("(%d+[%.,]?%d*)%s+additional")
+        or text:match("additional%s+(%d+[%.,]?%d*)")
+        or text:match("(%d+[%.,]?%d*)%s+points? de dégâts du sacré supplémentaires")
+    return n and tonum(n) or nil
+end

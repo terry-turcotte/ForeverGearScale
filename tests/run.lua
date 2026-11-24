@@ -53,6 +53,7 @@ local SPELLBOOK = {
         "6 sec cooldown", "Hurls a hammer that strikes an enemy for 316 to 348 Holy damage. Only usable on enemies that have 20% or less health." } },
     ["Holy Strike"] = { 900008, { "Holy Strike", "Melee Range", "10 sec cooldown",
         "An instant strike that causes 50% of weapon damage plus 40 Holy damage." } },
+    ["Seal of Righteousness"] = { 20293, { "Seal of Righteousness", "Fills the Paladin with holy spirit for 30 sec, granting each melee attack 33 additional Holy damage. Unleashing this Seal's energy will judge an enemy, instantly causing 90 to 100 Holy damage." } },
     ["Seal of Command"] = { 20920, { "Seal of Command", "Gives the Paladin a chance to deal additional Holy damage equal to 70% of normal weapon damage. Lasts 30 sec. Unleashing this Seal's energy will judge an enemy, instantly causing 68.5 to 73.5 Holy damage, 137 to 147 if the target is stunned or incapacitated." } },
 }
 BY_ID = {}   -- global: the C_TooltipInfo stub above reads it
@@ -82,7 +83,7 @@ local TALENTS = {
     { { "Divine Strength", 0, 5 }, { "Holy Shock", 0, 1 } },
     { { "Redoubt", 0, 5 } },
     { { "Benediction", 5, 5 }, { "Conviction", 1, 5 }, { "Vengeance", 3, 3 }, { "Champion of the Light", 5, 5 },
-        { "Sacred Arbiter", 1, 1 } },
+        { "Sacred Arbiter", 1, 1 }, { "Unsealed Wrath", 1, 1 } },
 }
 function GetNumTalentTabs() return 3 end
 function GetNumTalents(tab) return #TALENTS[tab] end
@@ -212,6 +213,8 @@ test("parser: spell tooltips (damage, weapon %, cooldown), English and French", 
     local fr = NS.Parser.Spell({ "Marteau de courroux", "Recharge 6 sec.",
         "Lance un marteau qui inflige 316 à 348 points de dégâts du Sacré." })
     near(fr.base, 332); near(fr.cd, 6)
+    eq(NS.Parser.SealHit(BY_ID[20293]), 33, "per-hit, not the Judgement")
+    eq(NS.Parser.SealHit({ "Chaque attaque en mêlée inflige 33 points de dégâts du Sacré supplémentaires." }), 33)
     local frj = NS.Parser.Spell({ "Libérer l'énergie de ce sceau pour un jugement inflige 68,5 à 73,5 points de dégâts." })
     near(frj.base, 71)
 end)
@@ -305,6 +308,22 @@ test("model: spell numbers from tooltips replace the constants", function()
     assert(c.holyStrike < a.holyStrike)
 end)
 
+test("model: Unsealed Wrath releases banked Seal of Command procs", function()
+    local st = state()
+    st.talents = { vengeance = 3, champion = 5, sacredArbiter = 1, unsealedWrath = 0, holyStrike = 1 }
+    local d0, a = M.Dps(st)
+    eq(a.sor, 0)
+    st.talents.unsealedWrath = 1
+    st.fight = { judge = 9, execute = 0.2, uwStacks = 3 }
+    local d3, b = M.Dps(st)
+    assert(b.soc > a.soc * 1.3, "more Command procs"); assert(b.sor > 0, "Righteousness swing")
+    assert(d3 > d0)
+    st.fight = { judge = 9, execute = 0.2, uwStacks = 2 }
+    local d2, c = M.Dps(st)
+    assert(c.soc < b.soc and c.sor > b.sor, "2 stacks: fewer banked procs, more Righteousness swings")
+    assert(d3 > d2, "3 stacks is better with the default numbers")
+end)
+
 test("model: swap delta is exact across the hit cap", function()
     local st = state({ hit = 8 })
     -- +3% hit only gives 1% before the cap
@@ -332,7 +351,9 @@ test("profile: reads the sheet and talents, live weights", function()
     eq(p.specName, "Retribution")
     eq(p.state.ap, 1200); eq(p.state.crit, 20); eq(p.state.hit, 5); eq(p.state.sp, 80); eq(p.state.target, 63)
     eq(p.state.talents.vengeance, 3); eq(p.state.talents.champion, 5); eq(p.state.talents.sacredArbiter, 1)
-    eq(p.state.talents.holyStrike, 1)
+    eq(p.state.talents.holyStrike, 1); eq(p.state.talents.unsealedWrath, 1)
+    eq(p.state.spells.sor.base, 33)
+    assert(p.parts.sor > 0)
     eq(#p.estimated, 0, table.concat(p.estimated, ","))
     near(p.state.wdps, 60, "weapon DPS backed out of the sheet damage")
     near(p.state.spells.how.base, 332, "Hammer of Wrath read from its tooltip")
@@ -343,10 +364,11 @@ test("profile: reads the sheet and talents, live weights", function()
     eq(NS.Profile.Get().parts.how, 0, "not in the spellbook")
     SPELLBOOK["Hammer of Wrath"] = saved
     SHEET.level = 43; NS.Profile.Invalidate()
-    eq(NS.Profile.Get().parts.how, 0, "below 44")
+    eq(NS.Profile.Get().state.level, 60, "always computed as a level 60")
+    assert(NS.Profile.Get().parts.how > 0)
     SHEET.level = 60; NS.Profile.Invalidate()
     NS.Commands.Run("spells")
-    near(p.weights.str, 10); assert(p.weights.hit > 50); eq(p.weights.sta, nil)
+    near(p.weights.str, 11, "Divine Strength 5/5: 1 Str = 1.1 Str = 2.2 AP"); assert(p.weights.hit > 50); eq(p.weights.sta, nil)
     SHEET.hit = 10; NS.Profile.Invalidate()
     near(NS.Profile.Get().weights.hit, 0, "capped")
     SHEET.hit = 5; NS.Profile.Invalidate()
@@ -368,10 +390,13 @@ test("profile: missing API falls back to defaults, talents can be set by hand", 
     NS.Profile.Invalidate()
     local p = NS.Profile.Get()
     eq(p.state.crit, 20, "last good reading is kept")
-    eq(p.state.talents.vengeance, 0)
+    eq(p.state.talents.vengeance, 3, "from the build")
+    NS.Commands.Run("set vengeance 0"); eq(NS.Profile.Get().state.talents.vengeance, 0)
     NS.Commands.Run("set vengeance 3"); NS.Commands.Run("set target 62")
     p = NS.Profile.Get()
     eq(p.state.talents.vengeance, 3); eq(p.state.target, 62)
+    NS.Commands.Run("set uwstacks 2"); eq(NS.Profile.Get().state.fight.uwStacks, 2)
+    NS.Commands.Run("set uwstacks auto")
     NS.Commands.Run("set vengeance auto"); NS.Commands.Run("set target auto")
     GetCritChance, GetTalentInfo = old, oldTI
     NS.Profile.Invalidate()
@@ -385,6 +410,36 @@ test("profile: unknown spellbook (other language) falls back to the constants", 
     eq(p.state.spells, nil); assert(p.parts.how > 0, "level rule only")
     C_Spell = old
     NS.Profile.Invalidate()
+end)
+
+test("build: 12/8/31 ranks, no talent API needed, every talent can be changed", function()
+    local g = GetTalentInfo
+    GetTalentInfo = function() error("talent API must not be called") end
+    NS.Profile.Invalidate()
+    local t = NS.Profile.Get().state.talents
+    eq(t.divineStrength, 5); eq(t.divineIntellect, 5); eq(t.improvedSeals, 5); eq(t.precision, 3)
+    eq(t.vengeance, 3); eq(t.champion, 5); eq(t.sacredArbiter, 1); eq(t.unsealedWrath, 1)
+    NS.Commands.Run("set improvedseals 0"); eq(NS.Profile.Get().state.talents.improvedSeals, 0)
+    NS.Commands.Run("set precision 4"); eq(NS.Profile.Get().state.talents.precision, 3, "max rank 3")
+    NS.Commands.Run("set improvedseals auto"); eq(NS.Profile.Get().state.talents.improvedSeals, 5)
+    NS.Commands.Run("build"); NS.Commands.Run("talents")
+    GetTalentInfo = g
+    NS.Profile.Invalidate()
+end)
+
+test("model: Divine Strength, Divine Intellect and Improved Seals", function()
+    local st = state()
+    st.talents = { vengeance = 3, champion = 5, sacredArbiter = 1, holyStrike = 1 }
+    local w0 = M.Weights(st)
+    st.talents.divineStrength, st.talents.divineIntellect = 5, 5
+    local w1 = M.Weights(st)
+    near(w1.str, w0.str * 1.1); assert(math.abs(w1.int - w0.int * 1.1) < 0.01)
+    near(w1.ap, w0.ap); near(w1.agi, w0.agi)
+    local _, a = M.Dps(st)
+    st.talents.improvedSeals = 5
+    local _, b = M.Dps(st)
+    assert(math.abs(b.soc / a.soc - 1.15) < 1e-6 and math.abs(b.joc / a.joc - 1.15) < 1e-6, "Seals +15%")
+    near(b.holyStrike, a.holyStrike * (1 + b.vengeance) / (1 + a.vengeance), "Holy Strike isn't a seal")
 end)
 
 test("profile: secret values in combat keep the last reading", function()
@@ -405,7 +460,7 @@ test("commands: pin / unpin / export / import round trip", function()
     local p = NS.Profile.Get()
     eq(p.weights.hit, 0); assert(p.overridden); assert(p.pinned.hit)
     local s = NS.Commands.Export(p)
-    assert(s:find("hit=0", 1, true) and s:find("str=10", 1, true), s)
+    assert(s:find("hit=0", 1, true) and s:find("str=11", 1, true), s)
     assert(not s:find("/", 1, true) and not s:find("prio", 1, true), s)
     NS.Commands.Run("unpin hit")
     assert(NS.Profile.Get().weights.hit > 50)

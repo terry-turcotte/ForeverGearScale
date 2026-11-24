@@ -8,6 +8,8 @@
 --
 -- Rotation modelled:
 --   white swings (2H) + Seal of Command procs (7 PPM, 70% weapon damage)
+--   (+ the Unsealed Wrath seal twist: bank Command stacks, release them with
+--   one Seal of Righteousness swing)
 --   + Holy Strike on cooldown (10 sec) + Judgement of Command every `judge`
 --   sec + Hammer of Wrath during the last `execute` part of the fight, all
 --   multiplied by the average Vengeance bonus.
@@ -27,6 +29,9 @@ Model.CONST = {
     championPerRank = 0.12, -- Champion of the Light: 12% of Intellect as spell damage per rank (60% at 5/5)
     vengeancePerRank = 1,   -- Vengeance: +1% damage per rank per stack (3% at 3/3)
     vengeanceStacks = 5,
+    divineStrengthPerRank = 0.02,  -- Divine Strength: +2% Strength per rank
+    divineIntellectPerRank = 0.02, -- Divine Intellect: +2% Intellect per rank
+    improvedSealsPerRank = 0.03,   -- Improved Seals: +3% Seal and Judgement damage per rank
     vengeanceDuration = 30,
     socPPM = 7, socWeapon = 0.7, socCoef = 0.2,
     -- Judgement of Command, rank 5: 68.5 to 73.5 Holy damage (double only on a
@@ -36,13 +41,20 @@ Model.CONST = {
     -- 50% weapon damage + 0.429 x spell damage. Sacred Arbiter: +20%.
     holyStrikeWeapon = 0.5, holyStrikeBase = 0, holyStrikeCoef = 0.429, holyStrikeCD = 10,
     sacredArbiterBonus = 0.2,
+    -- Unsealed Wrath (Ret capstone): each landed hit with a seal stores a copy
+    -- (max 3, 15 sec); the first landed hit with another seal releases them,
+    -- each with the seal's normal proc chance.
+    uwMaxStacks = 3,
+    -- Seal of Righteousness, Holy damage added to that one swing (rough
+    -- default; read from its tooltip when possible). Does not crit.
+    sorBase = 60, sorCoef = 0.1,
     -- Hammer of Wrath: learned at 44 in Forever (ranks at 44 / 52 / 60), 6 sec
     -- cooldown, 1 sec cast (instant with Champion of the Light 5/5).
     howBase = 370, howCoef = 0.429, howCD = 6, howLevel = 44,
 }
 local K = Model.CONST
 
-Model.DEFAULT_FIGHT = { judge = 9, execute = 0.2 }
+Model.DEFAULT_FIGHT = { judge = 9, execute = 0.2, uwStacks = 3 }
 
 -- A level-60 Ret with blues/epics, used when the client gives us nothing.
 function Model.DefaultState()
@@ -50,8 +62,8 @@ function Model.DefaultState()
         level = 60, target = 63,
         ap = 1100, crit = 18, hit = 3, wskill = 300, wdps = 60, speed = 3.6,
         sp = 60, spcrit = 8, spellhit = 0,
-        talents = { vengeance = 0, champion = 0, sacredArbiter = 0, holyStrike = 1 },
-        fight = { judge = 9, execute = 0.2 },
+        talents = { vengeance = 0, champion = 0, sacredArbiter = 0, unsealedWrath = 0, holyStrike = 1 },
+        fight = { judge = 9, execute = 0.2, uwStacks = 3 },
     }
 end
 
@@ -120,9 +132,23 @@ function Model.Dps(st)
     end
     local function known(key) return not (S[key] and S[key].known == false) end
 
-    local socPerSec = K.socPPM / 60 * landed
     local sp = st.sp or 0
-    local soc = socPerSec * (val("soc", "weapon", K.socWeapon) * swing + K.socCoef * sp) * (landed + specialCrit)
+    -- Unsealed Wrath cycle: `uwStacks` landed swings with Command (one stored
+    -- copy each), then one landed swing with Righteousness releases them all.
+    local uwShare, storedPerSec, sorPerSec = 1, 0, 0
+    if (t.unsealedWrath or 0) > 0 and landed > 0 then
+        local stacks = clamp(math.floor(f.uwStacks or 3), 1, K.uwMaxStacks)
+        local socSwings = stacks / landed            -- swings needed to land `stacks` hits
+        local cycleSec = (socSwings + 1 / landed) * speed
+        uwShare = socSwings / (socSwings + 1 / landed)
+        local procChance = math.min(1, K.socPPM * speed / 60)
+        storedPerSec = stacks * procChance / cycleSec
+        sorPerSec = 1 / cycleSec
+    end
+    local socPerSec = K.socPPM / 60 * landed * uwShare + storedPerSec
+    local seals = 1 + (t.improvedSeals or 0) * K.improvedSealsPerRank
+    local soc = socPerSec * (val("soc", "weapon", K.socWeapon) * swing + K.socCoef * sp) * (landed + specialCrit) * seals
+    local sor = sorPerSec * (val("sor", "base", K.sorBase) + K.sorCoef * sp) * seals
 
     -- Spells: spell hit table, Judgement and Hammer of Wrath crit with melee crit (x2).
     local spellMissBase = ({ [0] = 4, 5, 6, 17 })[clamp(target - level, 0, 3)]
@@ -130,7 +156,7 @@ function Model.Dps(st)
     local sHit = 1 - math.max(1, spellMissBase - (st.spellhit or 0)) / 100
     local spcrit = math.max(0, st.spcrit or 0) / 100
     local judge = math.max(1, f.judge or 9)
-    local joc = (val("soc", "base", K.jocBase) + K.jocCoef * sp) * sHit * (1 + crit) / judge
+    local joc = (val("soc", "base", K.jocBase) + K.jocCoef * sp) * sHit * (1 + crit) / judge * seals
     -- Holy Strike: a melee special (miss/dodge, melee crit x2), on cooldown.
     local useHS = (t.holyStrike or 1) > 0 and known("holyStrike")
     local hsCD = math.max(1, val("holyStrike", "cd", K.holyStrikeCD))
@@ -152,6 +178,7 @@ function Model.Dps(st)
     local events = {
         { dur / speed, whiteCrit },
         { dur * socPerSec, specialCrit },
+        { dur * sorPerSec, 0 },
         { dur / judge, sHit * crit },
         { useHS and dur / hsCD or 0, specialCrit },
         { exec * dur / howCD, (1 - miss) * crit },
@@ -161,9 +188,9 @@ function Model.Dps(st)
     local stacks = n > 0 and Model.VengeanceStacks(pc / n, math.floor(n + 0.5)) or 0
     local veng = (t.vengeance or 0) * K.vengeancePerRank / 100 * stacks
 
-    local raw = white + soc + joc + hs + how
+    local raw = white + soc + sor + joc + hs + how
     return raw * (1 + veng), {
-        white = white, soc = soc, joc = joc, holyStrike = hs, how = how,
+        white = white, soc = soc, sor = sor, joc = joc, holyStrike = hs, how = how,
         vengeance = veng, stacks = stacks, miss = miss, spellMiss = 1 - sHit,
     }
 end
@@ -182,13 +209,17 @@ function Model.Apply(st, d, sign)
     for k, v in pairs(st) do n[k] = v end
     local function g(id) return (d[id] or 0) * sign end
     local champ = (t.champion or 0) * K.championPerRank
-    n.ap = (st.ap or 0) + g("ap") + g("str") * K.apPerStr
+    -- % talents scale the Strength and Intellect an item adds (your sheet
+    -- already has them on what you wear).
+    local str = g("str") * (1 + (t.divineStrength or 0) * K.divineStrengthPerRank)
+    local int = g("int") * (1 + (t.divineIntellect or 0) * K.divineIntellectPerRank)
+    n.ap = (st.ap or 0) + g("ap") + str * K.apPerStr
     n.crit = (st.crit or 0) + g("crit") + g("agi") / K.agiPerCrit
     n.hit = (st.hit or 0) + g("hit")
     n.wskill = (st.wskill or 300) + g("wskill")
     n.wdps = (st.wdps or 0) + g("wdps")
-    n.sp = (st.sp or 0) + g("spdmg") + g("spboth") + g("int") * champ
-    n.spcrit = (st.spcrit or 0) + g("spcrit") + g("int") / K.intPerSpellCrit
+    n.sp = (st.sp or 0) + g("spdmg") + g("spboth") + int * champ
+    n.spcrit = (st.spcrit or 0) + g("spcrit") + int / K.intPerSpellCrit
     n.spellhit = (st.spellhit or 0) + g("spellhit")
     return n
 end

@@ -37,16 +37,18 @@ end
 
 local function help()
     say("commands (Retribution Paladin):")
-    print("  /fgs status — character stats and talents read, the model's DPS and Vengeance uptime")
+    print("  /fgs status — character stats read, the model's DPS and Vengeance uptime")
     print("  /fgs weights — points per stat, live from your stats (1 AP = 5, * = pinned by you)")
     print("  /fgs weight <stat> <points> — pin one stat's weight (no longer live)")
     print("  /fgs unpin <stat> — let that stat follow the model again")
     print("  /fgs set target||judge||execute <value> — boss level, sec between Judgements, execute share (0-1)")
-    print("  /fgs set vengeance||champion||arbiter <rank||auto> — talent rank if the client can't read it")
+    print("  /fgs build — the talent build used (12/8/31) and what each talent does in the model")
+    print("  /fgs set <talent> <rank||auto> — change a rank: divinestrength, divineintellect, improvedseals,")
+    print("      precision, vengeance, champion, arbiter, unsealed (auto = back to the build)")
+    print("  /fgs set uwstacks 2||3 — Unsealed Wrath: Command stacks you bank before the Righteousness swing")
     print("  /fgs set holystrike 0||1 — take Holy Strike out of (or back into) the rotation")
     print("  /fgs reset — unpin everything, default fight and talent settings")
     print("  /fgs export — print the weights as a string; /fgs import <string> to pin them")
-    print("  /fgs talents — dump what the talent API returns (for bug reports)")
     print("  /fgs spells — Hammer of Wrath, Holy Strike, Seal of Command numbers read from your spellbook")
     print("  /fgs on||off — show or hide the tooltip lines")
 end
@@ -72,8 +74,28 @@ function handlers.status()
     print(string.format("  AP %d · crit %.2f%% · hit %.1f%% · weapon skill %d · weapon %.1f DPS, %.2f speed",
         st.ap, st.crit, st.hit, st.wskill, st.wdps, st.speed))
     print(string.format("  Holy spell damage %d · spell crit %.2f%% · spell hit %.1f%%", st.sp, st.spcrit, st.spellhit))
-    print(string.format("  talents: Vengeance %d · Champion of the Light %d · Sacred Arbiter %d · Holy Strike %s",
-        t.vengeance or 0, t.champion or 0, t.sacredArbiter or 0, (t.holyStrike or 1) > 0 and "on" or "off"))
+    print(string.format("  build %s as a level %d: Divine Strength %d · Divine Intellect %d · Improved Seals %d · Precision %d",
+        NS.BUILD.name, st.level, t.divineStrength or 0, t.divineIntellect or 0, t.improvedSeals or 0, t.precision or 0))
+    print(string.format("    Vengeance %d · Champion of the Light %d · Sacred Arbiter %d · Unsealed Wrath %d · Holy Strike %s (/fgs build)",
+        t.vengeance or 0, t.champion or 0, t.sacredArbiter or 0, t.unsealedWrath or 0,
+        (t.holyStrike or 1) > 0 and "on" or "off"))
+    if (t.unsealedWrath or 0) > 0 then
+        local M = NS.Model
+        local function at(n)
+            local c = {}
+            for k, v in pairs(st) do c[k] = v end
+            c.fight = { judge = st.fight.judge, execute = st.fight.execute, uwStacks = n }
+            return (M.Dps(c))
+        end
+        local off = {}
+        for k, v in pairs(st) do off[k] = v end
+        off.talents = {}
+        for k, v in pairs(t) do off.talents[k] = v end
+        off.talents.unsealedWrath = 0
+        local base = M.Dps(off)
+        print(string.format("  Unsealed Wrath (swap at %d stacks): +%.1f DPS · at 2 stacks %.0f DPS, at 3 stacks %.0f DPS",
+            st.fight.uwStacks, p.dps - base, at(2), at(3)))
+    end
     local how = (p.parts.how or 0) > 0 and "yes"
         or (st.level < NS.Model.CONST.howLevel and ("no, learned at " .. NS.Model.CONST.howLevel))
         or ((st.spells and st.spells.how and st.spells.how.known == false) and "no, not in your spellbook")
@@ -83,8 +105,8 @@ function handlers.status()
     local x = p.parts
     print(string.format("  melee miss %.1f%% · spell miss %.0f%% · Vengeance %.1f stacks avg (+%.1f%% damage)",
         x.miss * 100, x.spellMiss * 100, x.stacks, x.vengeance * 100))
-    print(string.format("  DPS: white %.0f · Seal of Command %.0f · Holy Strike %.0f · Judgement %.0f · Hammer %.0f",
-        x.white, x.soc, x.holyStrike, x.joc, x.how))
+    print(string.format("  DPS: white %.0f · Seal of Command %.0f · Righteousness %.0f · Holy Strike %.0f · Judgement %.0f · Hammer %.0f",
+        x.white, x.soc, x.sor, x.holyStrike, x.joc, x.how))
     if #p.estimated > 0 then
         print("  not readable, using defaults: " .. table.concat(p.estimated, ", "))
     end
@@ -118,8 +140,10 @@ function handlers.unpin(arg)
     changed(); say(NS.STAT_BY_ID[arg].name .. " follows the model again.")
 end
 
-local FIGHT = { target = { 1, 83 }, judge = { 1, 60 }, execute = { 0, 1 } }
+local FIGHT = { target = { 1, 83 }, judge = { 1, 60 }, execute = { 0, 1 }, uwstacks = { 1, 3 } }
 local TALENT = { vengeance = "vengeance", champion = "champion", arbiter = "sacredArbiter",
+    unsealed = "unsealedWrath", divinestrength = "divineStrength", divineintellect = "divineIntellect",
+    improvedseals = "improvedSeals", precision = "precision", holyconduit = "holyConduit", sacredduty = "sacredDuty",
     holystrike = "holyStrike" }
 
 function handlers.set(arg)
@@ -131,17 +155,17 @@ function handlers.set(arg)
         else return say(string.format("%s must be between %g and %g, or auto", key, FIGHT[key][1], FIGHT[key][2])) end
     elseif key and TALENT[key] then
         if val == "auto" then NS.db.talents[TALENT[key]] = nil
-        elseif n and n >= 0 and n <= 5 then NS.db.talents[TALENT[key]] = n
-        else return say(key .. " must be a rank from 0 to 5, or auto") end
+        elseif n and n >= 0 and n <= (NS.BUILD.maxRank[TALENT[key]] or 1) then NS.db.talents[TALENT[key]] = n
+        else return say(string.format("%s must be a rank from 0 to %d, or auto", key, NS.BUILD.maxRank[TALENT[key]] or 1)) end
     else
-        return say("usage: /fgs set target||judge||execute||vengeance||champion||arbiter||holystrike <value||auto>")
+        return say("usage: /fgs set target||judge||execute||uwstacks||holystrike <value> or /fgs set <talent> <rank> (see /fgs build)")
     end
     changed(); handlers.status()
 end
 
 function handlers.reset()
     NS.db.pins, NS.db.fight, NS.db.talents = {}, {}, {}
-    changed(); say("weights unpinned; fight and talent settings back to default.")
+    changed(); say("weights unpinned; fight settings and talents back to the " .. NS.BUILD.name .. " build.")
 end
 
 function handlers.export()
@@ -171,27 +195,20 @@ local function show(v)
     return "{" .. table.concat(parts, ", ") .. "}"
 end
 
-function handlers.talents()
-    local CSI = C_SpecializationInfo or {}
-    say("talent API on this client:")
-    local fns = {}
-    for _, name in ipairs({ "GetNumTalentTabs", "GetNumTalents", "GetTalentInfo" }) do
-        fns[#fns + 1] = name .. (_G[name] and "+" or "-")
+function handlers.build()
+    local B, t = NS.BUILD, NS.db.talents
+    say("talent build " .. B.name .. " (computed as a level " .. B.level .. "; * = changed by you):")
+    for _, e in ipairs(B.order) do
+        local key, label = e[1], e[2]
+        local rank = t[key] or B.talents[key]
+        print(string.format("  %s%s %d/%d — %s", t[key] and "*" or " ", label, rank, B.maxRank[key], B.effect[key]))
     end
-    print("  globals: " .. table.concat(fns, " ") .. " · C_SpecializationInfo.GetTalentInfo"
-        .. (CSI.GetTalentInfo and "+" or "-"))
-    if GetTalentInfo then
-        local r = { pcall(GetTalentInfo, 3, 1) }
-        local out = {}
-        for i = 2, math.max(#r, 2) do out[#out + 1] = show(r[i]) end
-        print("  talent 3,1: " .. (r[1] and "" or "ERROR ") .. table.concat(out, ", "))
-    end
-    local t, any = NS.Character.ReadTalents()
-    print(string.format("  read: Vengeance %d · Champion of the Light %d · Sacred Arbiter %d%s",
-        t.vengeance, t.champion, t.sacredArbiter, any and "" or " (talent API gave nothing)"))
+    print("  change one: /fgs set <talent> <rank>, e.g. /fgs set improvedseals 3 (auto = back to the build)")
 end
+handlers.talents = handlers.build
 
-local SPELL_LABEL = { how = "Hammer of Wrath", holyStrike = "Holy Strike", soc = "Seal of Command (Judgement)" }
+local SPELL_LABEL = { how = "Hammer of Wrath", holyStrike = "Holy Strike", soc = "Seal of Command (Judgement)",
+    sor = "Seal of Righteousness (per hit)" }
 
 function handlers.spells()
     local spells = NS.Character.ReadSpells()
@@ -201,10 +218,10 @@ function handlers.spells()
     local K = NS.Model.CONST
     local DEF = {
         how = { base = K.howBase, cd = K.howCD }, holyStrike = { base = K.holyStrikeBase, weapon = K.holyStrikeWeapon, cd = K.holyStrikeCD },
-        soc = { base = K.jocBase, weapon = K.socWeapon },
+        soc = { base = K.jocBase, weapon = K.socWeapon }, sor = { base = K.sorBase },
     }
     say("spell numbers read from your spellbook (default in brackets when not found):")
-    for _, key in ipairs({ "how", "holyStrike", "soc" }) do
+    for _, key in ipairs({ "how", "holyStrike", "soc", "sor" }) do
         local sp, d = spells[key], DEF[key]
         if sp.id then
             local function f(field, fmt)
