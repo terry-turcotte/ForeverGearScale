@@ -29,6 +29,9 @@ Model.CONST = {
     championPerRank = 0.12, -- Champion of the Light: 12% of Intellect as spell damage per rank (60% at 5/5)
     vengeancePerRank = 1,   -- Vengeance: +1% damage per rank per stack (3% at 3/3)
     vengeanceStacks = 5,
+    divineStrengthPerRank = 0.02,  -- Divine Strength: +2% Strength per rank
+    divineIntellectPerRank = 0.02, -- Divine Intellect: +2% Intellect per rank
+    improvedSealsPerRank = 0.03,   -- Improved Seals: +3% Seal and Judgement damage per rank
     vengeanceDuration = 30,
     socPPM = 7, socWeapon = 0.7, socCoef = 0.2,
     -- Judgement of Command, rank 5: 68.5 to 73.5 Holy damage (double only on a
@@ -143,8 +146,9 @@ function Model.Dps(st)
         sorPerSec = 1 / cycleSec
     end
     local socPerSec = K.socPPM / 60 * landed * uwShare + storedPerSec
-    local soc = socPerSec * (val("soc", "weapon", K.socWeapon) * swing + K.socCoef * sp) * (landed + specialCrit)
-    local sor = sorPerSec * (val("sor", "base", K.sorBase) + K.sorCoef * sp)
+    local seals = 1 + (t.improvedSeals or 0) * K.improvedSealsPerRank
+    local soc = socPerSec * (val("soc", "weapon", K.socWeapon) * swing + K.socCoef * sp) * (landed + specialCrit) * seals
+    local sor = sorPerSec * (val("sor", "base", K.sorBase) + K.sorCoef * sp) * seals
 
     -- Spells: spell hit table, Judgement and Hammer of Wrath crit with melee crit (x2).
     local spellMissBase = ({ [0] = 4, 5, 6, 17 })[clamp(target - level, 0, 3)]
@@ -152,7 +156,7 @@ function Model.Dps(st)
     local sHit = 1 - math.max(1, spellMissBase - (st.spellhit or 0)) / 100
     local spcrit = math.max(0, st.spcrit or 0) / 100
     local judge = math.max(1, f.judge or 9)
-    local joc = (val("soc", "base", K.jocBase) + K.jocCoef * sp) * sHit * (1 + crit) / judge
+    local joc = (val("soc", "base", K.jocBase) + K.jocCoef * sp) * sHit * (1 + crit) / judge * seals
     -- Holy Strike: a melee special (miss/dodge, melee crit x2), on cooldown.
     local useHS = (t.holyStrike or 1) > 0 and known("holyStrike")
     local hsCD = math.max(1, val("holyStrike", "cd", K.holyStrikeCD))
@@ -205,13 +209,17 @@ function Model.Apply(st, d, sign)
     for k, v in pairs(st) do n[k] = v end
     local function g(id) return (d[id] or 0) * sign end
     local champ = (t.champion or 0) * K.championPerRank
-    n.ap = (st.ap or 0) + g("ap") + g("str") * K.apPerStr
+    -- % talents scale the Strength and Intellect an item adds (your sheet
+    -- already has them on what you wear).
+    local str = g("str") * (1 + (t.divineStrength or 0) * K.divineStrengthPerRank)
+    local int = g("int") * (1 + (t.divineIntellect or 0) * K.divineIntellectPerRank)
+    n.ap = (st.ap or 0) + g("ap") + str * K.apPerStr
     n.crit = (st.crit or 0) + g("crit") + g("agi") / K.agiPerCrit
     n.hit = (st.hit or 0) + g("hit")
     n.wskill = (st.wskill or 300) + g("wskill")
     n.wdps = (st.wdps or 0) + g("wdps")
-    n.sp = (st.sp or 0) + g("spdmg") + g("spboth") + g("int") * champ
-    n.spcrit = (st.spcrit or 0) + g("spcrit") + g("int") / K.intPerSpellCrit
+    n.sp = (st.sp or 0) + g("spdmg") + g("spboth") + int * champ
+    n.spcrit = (st.spcrit or 0) + g("spcrit") + int / K.intPerSpellCrit
     n.spellhit = (st.spellhit or 0) + g("spellhit")
     return n
 end

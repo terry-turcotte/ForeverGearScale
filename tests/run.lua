@@ -364,10 +364,11 @@ test("profile: reads the sheet and talents, live weights", function()
     eq(NS.Profile.Get().parts.how, 0, "not in the spellbook")
     SPELLBOOK["Hammer of Wrath"] = saved
     SHEET.level = 43; NS.Profile.Invalidate()
-    eq(NS.Profile.Get().parts.how, 0, "below 44")
+    eq(NS.Profile.Get().state.level, 60, "always computed as a level 60")
+    assert(NS.Profile.Get().parts.how > 0)
     SHEET.level = 60; NS.Profile.Invalidate()
     NS.Commands.Run("spells")
-    near(p.weights.str, 10); assert(p.weights.hit > 50); eq(p.weights.sta, nil)
+    near(p.weights.str, 11, "Divine Strength 5/5: 1 Str = 1.1 Str = 2.2 AP"); assert(p.weights.hit > 50); eq(p.weights.sta, nil)
     SHEET.hit = 10; NS.Profile.Invalidate()
     near(NS.Profile.Get().weights.hit, 0, "capped")
     SHEET.hit = 5; NS.Profile.Invalidate()
@@ -389,7 +390,8 @@ test("profile: missing API falls back to defaults, talents can be set by hand", 
     NS.Profile.Invalidate()
     local p = NS.Profile.Get()
     eq(p.state.crit, 20, "last good reading is kept")
-    eq(p.state.talents.vengeance, 0)
+    eq(p.state.talents.vengeance, 3, "from the build")
+    NS.Commands.Run("set vengeance 0"); eq(NS.Profile.Get().state.talents.vengeance, 0)
     NS.Commands.Run("set vengeance 3"); NS.Commands.Run("set target 62")
     p = NS.Profile.Get()
     eq(p.state.talents.vengeance, 3); eq(p.state.target, 62)
@@ -410,45 +412,34 @@ test("profile: unknown spellbook (other language) falls back to the constants", 
     NS.Profile.Invalidate()
 end)
 
-test("talents: Forever-like client, only C_SpecializationInfo.GetTalentInfo", function()
-    local g = { GetTalentInfo, GetNumTalents, GetNumTalentTabs }
-    GetTalentInfo, GetNumTalents, GetNumTalentTabs = nil, nil, nil
-    -- Grid layout: Ret tree talents at tier/column, answered as tables.
-    local GRID = { [3] = { ["1,1"] = { name = "Benediction", rank = 5, maxRank = 5 },
-        ["3,4"] = { name = "Vengeance", rank = 3, maxRank = 3 },
-        ["5,2"] = { name = "Champion of the Light", rank = 5, maxRank = 5 },
-        ["6,3"] = { name = "Sacred Arbiter", rank = 1, maxRank = 1 },
-        ["9,2"] = { name = "Unsealed Wrath", rank = 1, maxRank = 1 } } }
-    local shapes = {
-        -- { specializationIndex, tier, column }
-        function(q) if type(q) == "table" and q.tier and q.specializationIndex then
-            return (GRID[q.specializationIndex] or {})[q.tier .. "," .. q.column] end end,
-        -- { tier, column, groupIndex }, no tree: everything in one grid, "selected" instead of rank
-        function(q) if type(q) == "table" and q.tier and not q.specializationIndex then
-            local t = GRID[3][q.tier .. "," .. q.column]
-            if t then return { name = t.name, selected = true } end end end,
-        -- positional (tab, i)
-        function(tab, i) if type(tab) == "number" then
-            local list = {}
-            for _, t in pairs(GRID[tab] or {}) do list[#list + 1] = t end
-            table.sort(list, function(x, y) return x.name < y.name end)
-            local t = list[i]
-            if t then return t end end end,
-    }
-    for n, fn in ipairs(shapes) do
-        C_SpecializationInfo = { GetNumSpecializations = function() return 3 end,
-            GetTalentInfo = function(...) if select("#", ...) == 1 and type((...)) == "table" and (...).talentIndex then
-                error("bad query") end return fn(...) end }
-        local t, any, how = NS.Character.ReadTalents()
-        assert(any, "shape " .. n .. " not read")
-        eq(t.vengeance, 3, "shape " .. n .. " via " .. tostring(how))
-        eq(t.unsealedWrath, 1, "shape " .. n)
-        eq(t.champion, 5, "shape " .. n)
-    end
-    NS.Commands.Run("talents")   -- the dump must not error
-    C_SpecializationInfo = nil
-    GetTalentInfo, GetNumTalents, GetNumTalentTabs = g[1], g[2], g[3]
+test("build: 12/8/31 ranks, no talent API needed, every talent can be changed", function()
+    local g = GetTalentInfo
+    GetTalentInfo = function() error("talent API must not be called") end
     NS.Profile.Invalidate()
+    local t = NS.Profile.Get().state.talents
+    eq(t.divineStrength, 5); eq(t.divineIntellect, 5); eq(t.improvedSeals, 5); eq(t.precision, 3)
+    eq(t.vengeance, 3); eq(t.champion, 5); eq(t.sacredArbiter, 1); eq(t.unsealedWrath, 1)
+    NS.Commands.Run("set improvedseals 0"); eq(NS.Profile.Get().state.talents.improvedSeals, 0)
+    NS.Commands.Run("set precision 4"); eq(NS.Profile.Get().state.talents.precision, 3, "max rank 3")
+    NS.Commands.Run("set improvedseals auto"); eq(NS.Profile.Get().state.talents.improvedSeals, 5)
+    NS.Commands.Run("build"); NS.Commands.Run("talents")
+    GetTalentInfo = g
+    NS.Profile.Invalidate()
+end)
+
+test("model: Divine Strength, Divine Intellect and Improved Seals", function()
+    local st = state()
+    st.talents = { vengeance = 3, champion = 5, sacredArbiter = 1, holyStrike = 1 }
+    local w0 = M.Weights(st)
+    st.talents.divineStrength, st.talents.divineIntellect = 5, 5
+    local w1 = M.Weights(st)
+    near(w1.str, w0.str * 1.1); assert(math.abs(w1.int - w0.int * 1.1) < 0.01)
+    near(w1.ap, w0.ap); near(w1.agi, w0.agi)
+    local _, a = M.Dps(st)
+    st.talents.improvedSeals = 5
+    local _, b = M.Dps(st)
+    assert(math.abs(b.soc / a.soc - 1.15) < 1e-6 and math.abs(b.joc / a.joc - 1.15) < 1e-6, "Seals +15%")
+    near(b.holyStrike, a.holyStrike * (1 + b.vengeance) / (1 + a.vengeance), "Holy Strike isn't a seal")
 end)
 
 test("profile: secret values in combat keep the last reading", function()
@@ -469,7 +460,7 @@ test("commands: pin / unpin / export / import round trip", function()
     local p = NS.Profile.Get()
     eq(p.weights.hit, 0); assert(p.overridden); assert(p.pinned.hit)
     local s = NS.Commands.Export(p)
-    assert(s:find("hit=0", 1, true) and s:find("str=10", 1, true), s)
+    assert(s:find("hit=0", 1, true) and s:find("str=11", 1, true), s)
     assert(not s:find("/", 1, true) and not s:find("prio", 1, true), s)
     NS.Commands.Run("unpin hit")
     assert(NS.Profile.Get().weights.hit > 50)

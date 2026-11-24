@@ -10,6 +10,7 @@
 Compat.lua
 Data\Stats.lua
 Data\Presets.lua
+Data\Build.lua
 Parser.lua
 ItemStats.lua
 Model.lua

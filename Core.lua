@@ -11,7 +11,7 @@ local DEFAULTS = {
     debug = false,
     pins = {},      -- stats whose DPS weight you set by hand: { hit = 0, ... }
     fight = {},     -- { target = 63, judge = 9, execute = 0.2 } (only what you changed)
-    talents = {},   -- talent ranks set by hand: { vengeance = 3, champion = 5, sacredArbiter = 1, holyStrike = 0 }
+    talents = {},   -- ranks changed from the build (Data/Build.lua): { improvedSeals = 3, holyStrike = 0 }
 }
 
 local function initDB()
