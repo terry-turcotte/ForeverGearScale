@@ -93,8 +93,10 @@ function Character.Read(fight, overrides)
     set("spcrit", call(GetSpellCritChance, 2))           -- 2 = Holy
     set("sp", call(GetSpellBonusDamage, 2))
     set("speed", (call(UnitAttackSpeed, "player")))
+    -- We play a level 60, so the base skill is 300 whatever your level; only
+    -- the bonus (gear, racial) is read.
     local skill, mod = call(UnitAttackBothHands, "player")
-    set("wskill", skill and (num(skill) or 0) + (num(mod) or 0))
+    set("wskill", skill and st.level * 5 + math.max(0, num(mod) or 0))
 
     local wdps, wspeed = mainHand()
     if not wdps then
